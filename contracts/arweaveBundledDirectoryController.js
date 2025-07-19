@@ -64,22 +64,15 @@ class ArweaveBundledDirectoryController {
     };
   }
 
-  // Create a bundled directory structure
+  // Create a bundled directory structure with proper file objects
   createBundledDirectory(metadataList) {
     try {
       console.log(`📦 Creating bundled directory structure for ${metadataList.length} metadata items...`);
 
-      // Create the directory structure
-      const directory = {
-        manifest: "arweave/paths",
-        version: "0.1.0",
-        paths: {},
-        index: {
-          path: "/index.html"
-        }
-      };
+      // Create files array for bundlr upload
+      const files = [];
 
-      // Add all metadata files to the directory
+      // Add all metadata files
       for (let i = 0; i < metadataList.length; i++) {
         const item = metadataList[i];
         
@@ -89,11 +82,12 @@ class ArweaveBundledDirectoryController {
           const metadata = this.createMetadataJSON(item);
           const fileName = `${item.tokenId}.json`;
           
-          // Add metadata directly to the directory paths
-          directory.paths[`/${fileName}`] = {
-            id: `embedded_${item.tokenId}`,
-            data: metadata
-          };
+          // Create file object for bundlr
+          files.push({
+            name: fileName,
+            data: Buffer.from(JSON.stringify(metadata, null, 2)),
+            contentType: 'application/json'
+          });
           
           console.log(`✅ Added: ${fileName}`);
 
@@ -103,8 +97,8 @@ class ArweaveBundledDirectoryController {
         }
       }
 
-      console.log(`✅ Bundled directory structure created with ${metadataList.length} files`);
-      return directory;
+      console.log(`✅ Bundled directory structure created with ${files.length} files`);
+      return files;
 
     } catch (error) {
       throw new Error(`Failed to create bundled directory: ${error.message}`);
@@ -177,16 +171,23 @@ class ArweaveBundledDirectoryController {
       // Load wallet
       const wallet = this.loadWalletFromFile();
       
-      // Create bundled directory structure
-      const directory = this.createBundledDirectory(metadataList);
+      // Create files array for bundled upload
+      const files = this.createBundledDirectory(metadataList);
       
-      // Upload as single bundled transaction
-      const uploadResult = await this.service.uploadBundledDirectory(directory, wallet);
-      console.log(uploadResult);
+      // Upload as bundled directory transaction
+      const uploadResult = await this.service.uploadBundledDirectory(files, wallet, options);
+      
+      console.log('Upload successful:', uploadResult);
+      
       return res.status(200).json({
         success: true,
         message: 'NFT metadata uploaded successfully as bundled directory',
-        data: uploadResult
+        data: {
+          ...uploadResult,
+          totalFiles: files.length,
+          baseURI: `https://arweave.net/${uploadResult.bundleTxId}/`,
+          usage: `Access individual metadata at: https://arweave.net/${uploadResult.bundleTxId}/{tokenId}.json`
+        }
       });
 
     } catch (error) {
@@ -226,16 +227,19 @@ class ArweaveBundledDirectoryController {
         }
       }
 
-      // Create directory structure for cost estimation
-      const directory = this.createBundledDirectory(metadataList);
+      // Create files array for cost estimation
+      const files = this.createBundledDirectory(metadataList);
       
       // Estimate costs
-      const costEstimate = await this.service.estimateUploadCost(directory);
+      const costEstimate = await this.service.estimateUploadCost(files);
 
       return res.status(200).json({
         success: true,
         message: 'Bundled directory cost estimation completed',
-        data: costEstimate
+        data: {
+          ...costEstimate,
+          totalFiles: files.length
+        }
       });
 
     } catch (error) {
@@ -267,19 +271,19 @@ class ArweaveBundledDirectoryController {
         });
       }
 
-      // Fetch bundle from Arweave
-      const bundleUrl = `https://arweave.net/${bundleTxId}`;
+      // Fetch bundle info from service
+      const bundleInfo = await this.service.getBundleInfo(bundleTxId);
       
-      // For now, return basic info - in a real implementation, you'd fetch the bundle
       return res.status(200).json({
         success: true,
         message: 'Bundled directory information retrieved',
         data: {
           bundleTxId: bundleTxId,
-          bundleUrl: bundleUrl,
+          bundleUrl: `https://arweave.net/${bundleTxId}`,
           baseURI: `https://arweave.net/${bundleTxId}/`,
           arweaveBaseURI: `ar://${bundleTxId}/`,
-          note: 'Use the baseURI + tokenId + ".json" to access individual metadata files. This is a true bundled directory upload that supports path-based access.'
+          ...bundleInfo,
+          usage: 'Use the baseURI + tokenId + ".json" to access individual metadata files'
         }
       });
 
@@ -293,4 +297,4 @@ class ArweaveBundledDirectoryController {
   }
 }
 
-module.exports = new ArweaveBundledDirectoryController(); 
+module.exports = new ArweaveBundledDirectoryController();
