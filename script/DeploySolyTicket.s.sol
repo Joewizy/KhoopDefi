@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import { Script, console } from "forge-std/Script.sol";
-import { SolyTicket } from "../src/SolyTicket.sol";
-import { MinimalForwarder } from "@openzeppelin/contracts/metatx/MinimalForwarder.sol";
+import {Script, console} from "forge-std/Script.sol";
+import {SolyTicket} from "../src/SolyTicket.sol";
+import {MinimalForwarder} from "@openzeppelin/contracts/metatx/MinimalForwarder.sol";
 
 contract DeploySolyTicket is Script {
     function run() external {
@@ -21,14 +21,7 @@ contract DeploySolyTicket is Script {
         address trustedForwarder = address(minimalForwarder);
 
         // Deploy the SolyTicket contract
-        SolyTicket solyTicket = new SolyTicket(
-            owner,
-            totalNFTs,
-            name,
-            tag,
-            arweaveBaseURI,
-            trustedForwarder
-        );
+        SolyTicket solyTicket = new SolyTicket(owner, totalNFTs, name, tag, arweaveBaseURI, trustedForwarder);
 
         console.log("SolyTicket deployed at:", address(solyTicket));
 

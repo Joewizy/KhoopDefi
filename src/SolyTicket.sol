@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "./ERC721A.sol";
-import { ERC2771Context } from "@openzeppelin/contracts/metatx/ERC2771Context.sol";
+import {ERC2771Context} from "@openzeppelin/contracts/metatx/ERC2771Context.sol";
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/interfaces/IERC2981.sol";
@@ -91,12 +91,7 @@ contract SolyTicket is ERC2771Context, ERC721A, IERC2981, Ownable {
     function listNFT(uint256 tokenId, uint256 price) external {
         require(ownerOf(tokenId) == _msgSender(), "Not the owner");
         require(secondarySalesEnabled, "Secondary sales are disabled");
-        listings[nextListingId] = Listing({
-            tokenId: tokenId,
-            seller: _msgSender(),
-            price: price,
-            active: true
-        });
+        listings[nextListingId] = Listing({tokenId: tokenId, seller: _msgSender(), price: price, active: true});
         emit NFTListed(nextListingId, _msgSender(), tokenId, price);
         nextListingId++;
     }
@@ -133,10 +128,7 @@ contract SolyTicket is ERC2771Context, ERC721A, IERC2981, Ownable {
     }
 
     /// @notice Batch update token URIs if needed (optional)
-    function batchSetTokenURIs(
-        uint256[] calldata tokenIds,
-        string[] calldata cids
-    ) external view onlyOwner {
+    function batchSetTokenURIs(uint256[] calldata tokenIds, string[] calldata cids) external view onlyOwner {
         require(tokenIds.length == cids.length, "Array length mismatch");
         for (uint256 i = 0; i < tokenIds.length; i++) {
             require(ownerOf(tokenIds[i]) == address(this), "Can only update unassigned tokens");
@@ -148,17 +140,15 @@ contract SolyTicket is ERC2771Context, ERC721A, IERC2981, Ownable {
     // --- Transfer Restrictions ---
 
     /// @dev Restrict transfers to minting, gifting by contract, admin transfers, or if secondary sales enabled
-    function _beforeTokenTransfers(
-        address from,
-        address to,
-        uint256 startTokenId,
-        uint256 quantity
-    ) internal override {
+    function _beforeTokenTransfers(address from, address to, uint256 startTokenId, uint256 quantity)
+        internal
+        override
+    {
         require(
-            from == address(0) ||       // Minting
-            from == address(this) ||    // Initial gifting from contract custody
-            _msgSender() == owner() ||    // Admin transfers (including fulfillSale)
-            secondarySalesEnabled,      // Allow transfers if secondary sales enabled
+            from == address(0) // Minting
+                || from == address(this) // Initial gifting from contract custody
+                || _msgSender() == owner() // Admin transfers (including fulfillSale)
+                || secondarySalesEnabled, // Allow transfers if secondary sales enabled
             "Transfers restricted"
         );
         super._beforeTokenTransfers(from, to, startTokenId, quantity);
@@ -167,35 +157,32 @@ contract SolyTicket is ERC2771Context, ERC721A, IERC2981, Ownable {
     // --- Royalty Info (EIP-2981) ---
 
     /// @notice Returns royalty info for marketplace
-    function royaltyInfo(
-        uint256 tokenId,
-        uint256 salePrice
-    ) external view override returns (address receiver, uint256 royaltyAmount) {
+    function royaltyInfo(uint256 tokenId, uint256 salePrice)
+        external
+        view
+        override
+        returns (address receiver, uint256 royaltyAmount)
+    {
         require(_exists(tokenId), "Nonexistent token");
         uint256 amount = (salePrice * ROYALTY_PERCENTAGE) / 10000;
         return (owner(), amount);
     }
 
     /// @notice Supports interfaces including IERC2981
-    function supportsInterface(
-        bytes4 interfaceId
-    ) public view virtual override(ERC721A, IERC165) returns (bool) {
-        return
-            interfaceId == type(IERC2981).interfaceId ||
-            super.supportsInterface(interfaceId);
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC721A, IERC165) returns (bool) {
+        return interfaceId == type(IERC2981).interfaceId || super.supportsInterface(interfaceId);
     }
 
     /// @notice ERC721 Receiver implementation to allow safe transfers to contract
-    function onERC721Received(
-        address /*operator*/,
-        address /*from*/,
-        uint256 /*tokenId*/,
-        bytes calldata /*data*/
-    ) external pure returns (bytes4) {
+    function onERC721Received(address, /*operator*/ address, /*from*/ uint256, /*tokenId*/ bytes calldata /*data*/ )
+        external
+        pure
+        returns (bytes4)
+    {
         return this.onERC721Received.selector;
     }
 
-    /// @notice 
+    /// @notice
     function _msgSender() internal view override(Context, ERC2771Context) returns (address) {
         return ERC2771Context._msgSender();
     }
@@ -203,5 +190,4 @@ contract SolyTicket is ERC2771Context, ERC721A, IERC2981, Ownable {
     function _msgData() internal view override(Context, ERC2771Context) returns (bytes calldata) {
         return ERC2771Context._msgData();
     }
-
 }
