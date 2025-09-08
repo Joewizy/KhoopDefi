@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.19;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
@@ -10,13 +10,12 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
     /**
      * @title Khoop-Defi
      * @notice Slot-based contribution system with automated payouts and referral rewards
-     * @dev Entry: $15, Capital Return: $15, Profit: $5, Total Payout: $20
+     * @dev Entry: $15, Profit Only: $5, Capital Locked to Powerline
      */
 contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     using SafeERC20 for IERC20;
 
     // ============ Errors ============
-    error KhoopDefi__InvalidAmount();
     error KhoopDefi__ExceedsDailyLimit();
     error KhoopDefi__ExceedsTransactionLimit();
     error KhoopDefi__InsufficientBalance();
@@ -25,7 +24,6 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     error KhoopDefi__ZeroAddress();
     error KhoopDefi__TimeCoolDown();
     error KhoopDefi__MustPayExactAmount();
-    error KhoopDefi__InsufficientBalanceToAutoFill();
     error KhoopDefi__OnlyEntryOwner();
     error KhoopDefi__CycleAlreadyCompleted();
 
@@ -49,7 +47,6 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         uint256 timestamp;
         bool isCompleted;
         uint256 completionTime;
-        uint8 cycleCount;        // Track cycles for this entry (1-3)
     }
 
     struct GlobalStats {
@@ -61,21 +58,18 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     }
 
     // ============ Constants ============
-    uint256 private constant CORE_TEAM_SHARE = 15e4; // $0.15 each (4 wallets)
-    uint256 private constant INVESTORS_SHARE = 2e4;  // $0.02 each (15 wallets)  
-    uint256 private constant CONTINGENCY_SHARE = 1e5; // $0.10
-    uint256 private constant TEAM_SHARE = 1e6; // $1 per entry
-    uint256 private constant PRECISION = 100;
-    uint256 private constant ENTRY_COST = 15e6;        // $15 entry cost (capital)
-    uint256 private constant CAPITAL_AMOUNT = 15e6;    // $15 capital return
-    uint256 private constant PROFIT_AMOUNT = 5e6;      // $5 profit
+    uint256 private constant CORE_TEAM_SHARE = 15e16; // $0.15 each (4 wallets)
+    uint256 private constant INVESTORS_SHARE = 2e16;  // $0.02 each (15 wallets)  
+    uint256 private constant CONTINGENCY_SHARE = 1e17; // $0.10
+    uint256 private constant ENTRY_COST = 15e18;        // $15 entry cost (capital)
+    uint256 private constant PROFIT_AMOUNT = 5e18;      // $5 profit
     uint256 private constant CYCLE_DURATION = 3 days;   // 1-3 days cycle
     uint256 private constant MAX_ENTRIES_PER_TX = 10;
     uint256 private constant MAX_ENTRIES_PER_DAY = 50;
-    uint256 private constant REFERRER_BONUS_PER_ENTRY = 1e6;   // 1 USDT per entry
+    uint256 private constant REFERRER_BONUS_PER_ENTRY = 1e18;   // 1 USDT per entry
     uint256 private constant MIN_ENTRY_INTERVAL = 10 minutes;
-    uint256 private constant BUYBACK_PER_ENTRY = 3e6;  // $3 per entry
-    uint256 private constant BUYBACK_THRESHOLD = 10e6; // $10 threshold
+    uint256 private constant BUYBACK_PER_ENTRY = 3e18;  // $3 per entry
+    uint256 private constant BUYBACK_THRESHOLD = 10e18; // $10 threshold
 
     // ============ State Variables ============
     address[4] public coreTeamWallet;
@@ -222,7 +216,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     }
 
     /**
-     * @notice Complete a cycle and receive capital + profit
+     * @notice Complete a cycle and receive profit only (capital locked to powerline)
      * @param entryId The entry ID to complete
      */
     function completeCycle(uint256 entryId) external nonReentrant whenNotPaused {
@@ -234,8 +228,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         }
 
         // Check contract balance before payout
-        uint256 totalPayout = CAPITAL_AMOUNT + PROFIT_AMOUNT;
-        if (usdt.balanceOf(address(this)) < totalPayout) {
+        if (usdt.balanceOf(address(this)) < PROFIT_AMOUNT) {
             revert KhoopDefi__InsufficientBalance();
         }
 
@@ -247,22 +240,15 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         globalStats.totalEntriesCompleted++;
         globalStats.totalSlotFillPaid += PROFIT_AMOUNT;
 
-        // Advance queue pointer (effects) before external interaction
+        // Mark entry as completed and advance queue pointer
+        entry.isCompleted = true;
+        entry.completionTime = block.timestamp;
         _advancePendingStart();
 
-        // Apply 2-cycle rule: Cycles 1-2 get full payout, Cycle 3 gets profit only
-        if (entry.cycleCount < 3) {
-            // Cycles 1-2: Full $20 (capital + profit)
-            entry.cycleCount++;
-            entry.timestamp = block.timestamp;
-            usdt.safeTransfer(msg.sender, totalPayout);
-        } else {
-            entry.isCompleted = true;
-            entry.completionTime = block.timestamp;
-            usdt.safeTransfer(msg.sender, PROFIT_AMOUNT);
-        }
+        // Pay only profit ($5) - capital ($15) stays locked to powerline
+        usdt.safeTransfer(msg.sender, PROFIT_AMOUNT);
 
-        emit CycleCompleted(entryId, msg.sender, CAPITAL_AMOUNT, PROFIT_AMOUNT);
+        emit CycleCompleted(entryId, msg.sender, 0, PROFIT_AMOUNT);
     }
 
     // ============ Admin Functions ============
@@ -338,8 +324,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
             user: user,
             timestamp: block.timestamp,
             isCompleted: false,
-            completionTime: 0,
-            cycleCount: 1
+            completionTime: 0
         });
 
         userEntries[user].push(nextEntryId);
@@ -389,10 +374,8 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
             return false;
         }
         
-        uint256 totalPayout = CAPITAL_AMOUNT + PROFIT_AMOUNT;
-        
-        // Check contract balance
-        if (usdt.balanceOf(address(this)) < totalPayout) {
+        // Check contract balance for profit payout only
+        if (usdt.balanceOf(address(this)) < PROFIT_AMOUNT) {
             return false; // Insufficient balance
         }
         
@@ -407,24 +390,15 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         // Consume buyback threshold
         buybackAccumulated -= BUYBACK_THRESHOLD;
         
-        // Apply 2-cycle rule: Cycles 1-2 get full payout, Cycle 3 gets profit only
-        if (entry.cycleCount < 3) {
-            // Cycles 1-2: Full $20 (capital + profit)
-            entry.cycleCount++;
-            entry.timestamp = block.timestamp;
-            usdt.safeTransfer(entry.user, totalPayout);
-            // Entry continues - NOT marked completed
-        } else {
-            // Cycle 3: Only $5 profit (capital locked)
-            entry.isCompleted = true;
-            entry.completionTime = block.timestamp;
-            usdt.safeTransfer(entry.user, PROFIT_AMOUNT);
-        }
+        // Mark entry as completed and pay profit only
+        entry.isCompleted = true;
+        entry.completionTime = block.timestamp;
+        usdt.safeTransfer(entry.user, PROFIT_AMOUNT);
         
         // Advance queue pointer
         _advancePendingStart();
         
-        emit CycleCompleted(entryId, entry.user, CAPITAL_AMOUNT, PROFIT_AMOUNT);
+        emit CycleCompleted(entryId, entry.user, 0, PROFIT_AMOUNT);
         emit BuybackAutoFill(entryId, BUYBACK_THRESHOLD);
         
         return true;

@@ -4,11 +4,11 @@ pragma solidity ^0.8.21;
 import "forge-std/Test.sol";
 import "../src/KhoopDefi.sol"; // adjust path if needed
 
-/// @notice Simple ERC20 mock with 6 decimals to emulate USDT
+/// @notice Simple ERC20 mock with 18 decimals to emulate USDT on BSC
 contract MockUSDT is IERC20 {
     string public name = "MockUSDT";
     string public symbol = "mUSDT";
-    uint8 public decimals = 6;
+    uint8 public decimals = 18;
 
     mapping(address => uint256) public override balanceOf;
     mapping(address => mapping(address => uint256)) public override allowance;
@@ -90,10 +90,10 @@ contract AutoFillCapTest is Test {
     address buyer = address(0x2001);
 
     // constants (match your contract)
-    uint256 constant USDT_DECIMALS = 1e6;
-    uint256 constant ENTRY_COST = 15e6; // 15 * 10^6
-    uint256 constant BUYBACK_PER_ENTRY = 3e6; // 3 * 10^6
-    uint256 constant BUYBACK_THRESHOLD = 10e6; // 10 * 10^6
+    uint256 constant USDT_DECIMALS = 1e18;
+    uint256 constant ENTRY_COST = 15e18; // 15 * 10^18
+    uint256 constant BUYBACK_PER_ENTRY = 3e18; // 3 * 10^18
+    uint256 constant BUYBACK_THRESHOLD = 10e18; // 10 * 10^18
     uint256 constant AUTO_FILL_CAP = 5; // should match contract's AUTO_FILL_CAP
 
     function setUp() public {
@@ -128,7 +128,7 @@ contract AutoFillCapTest is Test {
     /// The contract should add buyback contribution for the 10 entries, then process up to AUTO_FILL_CAP thresholds.
     function test_purchaseTriggersCappedAutoFills() public {
         // Setup: set buybackAccumulated to a pre-existing large value: e.g., 79 * 10^6 (79 USDT)
-        uint256 pre = 79e6;
+        uint256 pre = 79e18;
         khoop.setBuybackAccumulated(pre);
 
         // sanity check
@@ -148,10 +148,10 @@ contract AutoFillCapTest is Test {
         console.log("Gas consumed", gasBefore - gasleft()); 
 
         // After purchase: contract adds buybackAccumulated += numEntries * BUYBACK_PER_ENTRY
-        uint256 added = numEntries * BUYBACK_PER_ENTRY; // 10 * 3e6 = 30e6
+        uint256 added = numEntries * BUYBACK_PER_ENTRY; // 10 * 3e18 = 30e18
 
         // total before processing loop = pre + added
-        uint256 beforeLoop = pre + added; // 79e6 + 30e6 = 109e6
+        uint256 beforeLoop = pre + added; // 79e18 + 30e18 = 109e18
 
         // The loop should process min(possible, AUTO_FILL_CAP) thresholds,
         // where possible = floor(beforeLoop / BUYBACK_THRESHOLD) = floor(109 / 10) = 10
@@ -159,7 +159,7 @@ contract AutoFillCapTest is Test {
         uint256 processed = AUTO_FILL_CAP;
 
         // expected final pot = beforeLoop - processed * BUYBACK_THRESHOLD
-        uint256 expectedFinal = beforeLoop - (processed * BUYBACK_THRESHOLD); // 109e6 - 50e6 = 59e6
+        uint256 expectedFinal = beforeLoop - (processed * BUYBACK_THRESHOLD); // 109e18 - 50e18 = 59e18
 
         // read actual pot from contract
         uint256 actualFinal = khoop.getBuybackAccumulated();

@@ -16,8 +16,8 @@ contract KhoopDefiTest is Test {
     address buyback;
     address powerCycle;
 
-    uint256 public constant SLOT_PRICE = 15e6;
-    uint256 public constant USDT_DECIMALS = 10 ** 6;
+    uint256 public constant SLOT_PRICE = 15e18;
+    uint256 public constant USDT_DECIMALS = 10 ** 18;
 
     function setUp() public {
         usdt = new MockUSDT();
@@ -38,7 +38,7 @@ contract KhoopDefiTest is Test {
     function _prepareUsers(uint256 count) internal {
         for (uint256 i = 0; i < count; i++) {
             address user = address(uint160(10000 + i));
-            usdt.mint(user, 1000e6);
+            usdt.mint(user, 1000e18);
             vm.startPrank(user);
             usdt.approve(address(khoopDefi), SLOT_PRICE * 11);
             vm.stopPrank();
@@ -76,8 +76,8 @@ contract KhoopDefiTest is Test {
         address user1 = address(uint160(10001));
 
         // Give USDT to users
-        usdt.mint(referrer, 1000e6);
-        usdt.mint(user1, 1000e6);
+        usdt.mint(referrer, 1000e18);
+        usdt.mint(user1, 1000e18);
 
         // Register referrer first
         vm.startPrank(referrer);
@@ -93,7 +93,7 @@ contract KhoopDefiTest is Test {
         uint256 referrerBalanceAfter = usdt.balanceOf(referrer);
         vm.stopPrank();
 
-        uint256 expectedBonus = 1e6;
+        uint256 expectedBonus = 1e18;
         assertEq(referrerBalanceAfter - referrerBalanceBefore, expectedBonus, "Referral bonus should be $1");
 
         console.log("Referrer bonus received:", (referrerBalanceAfter - referrerBalanceBefore) / 1e6);
@@ -101,7 +101,7 @@ contract KhoopDefiTest is Test {
 
     function testBuybackAutoFillMechanism() public {
         // Test buyback accumulation and auto-fill functionality
-        uint256 buybackThreshold = 10e6; // $10 threshold (CORRECT!)
+        uint256 buybackThreshold = 10e18; // $10 threshold (CORRECT!)
         uint256 entriesNeeded = 4; // Since $3 per entry, need 4 entries to reach $12 > $10
 
         _prepareUsers(entriesNeeded + 5);
@@ -115,7 +115,7 @@ contract KhoopDefiTest is Test {
         }
 
         uint256 buybackBefore = khoopDefi.getBuybackAccumulated();
-        console.log("Buyback after 3 purchases:", buybackBefore / 1e6); // Should be $9
+        console.log("Buyback after 3 purchases:", buybackBefore / 1e18); // Should be $9
 
         // This 4th purchase should trigger auto-fill (will reach $12)
         address triggerUser = address(uint160(10000 + 3));
@@ -124,16 +124,16 @@ contract KhoopDefiTest is Test {
         vm.stopPrank();
 
         uint256 buybackAfter = khoopDefi.getBuybackAccumulated();
-        console.log("Buyback after auto-fill:", buybackAfter / 1e6); // Should be $2 ($12 - $10)
+        console.log("Buyback after auto-fill:", buybackAfter / 1e18); // Should be $2 ($12 - $10)
 
         // Buyback should be reduced by threshold amount ($10)
-        assertEq(buybackAfter, buybackBefore + 3e6 - buybackThreshold, "Buyback should decrease by $10 after auto-fill");
+        assertEq(buybackAfter, buybackBefore + 3e18 - buybackThreshold, "Buyback should decrease by $10 after auto-fill");
     }
 
     function testCycleCompletion() public {
         // Test that users receive payouts when cycles complete
         address testUser = address(uint160(20000));
-        usdt.mint(testUser, 1000e6);
+        usdt.mint(testUser, 1000e18);
 
         vm.startPrank(testUser);
         usdt.approve(address(khoopDefi), SLOT_PRICE);
@@ -142,7 +142,7 @@ contract KhoopDefiTest is Test {
         vm.stopPrank();
 
         // Simulate cycle completion by triggering buyback auto-fill
-        uint256 buybackThreshold = 10e6; // CORRECT: $10 threshold
+        uint256 buybackThreshold = 10e18; // CORRECT: $10 threshold
         uint256 entriesNeeded = 4; // Need 4 entries ($3 each = $12) to trigger $10 threshold
         _prepareUsers(entriesNeeded);
 
@@ -155,21 +155,23 @@ contract KhoopDefiTest is Test {
         }
 
         uint256 balanceAfter = usdt.balanceOf(testUser);
-        console.log("User balance change:", (balanceAfter - balanceBefore) / 1e6);
+        console.log("User balance before:", balanceBefore / 1e18);
+        console.log("User balance after:", balanceAfter / 1e18);
+        console.log("User balance change:", int256(balanceAfter) - int256(balanceBefore));
 
-        // Check if user received payout (should be $20 = $15 capital + $5 profit)
-        if (balanceAfter > balanceBefore) {
-            uint256 payout = balanceAfter - balanceBefore + SLOT_PRICE; // Add back the initial investment
-            console.log("Total payout received:", payout / 1e6);
-        }
+        // Check if user received payout (should be $5 profit only)
+        // User spent $15 but received $5, so net change should be -$10
+        // The user should have received $5 profit, so their balance should be:
+        // Original balance - $15 (spent) + $5 (received) = Original balance - $10
+        assertEq(balanceAfter, balanceBefore - 10e18, "User should have net -$10 change");
     }
 
     function testDailyLimits() public {
         address testUser = address(uint160(40000));
-        usdt.mint(testUser, 10000e6);
+        usdt.mint(testUser, 10000e18);
 
         vm.startPrank(testUser);
-        usdt.approve(address(khoopDefi), 10000e6);
+        usdt.approve(address(khoopDefi), 10000e18);
         
         vm.expectRevert(KhoopDefi.KhoopDefi__ExceedsTransactionLimit.selector);
         khoopDefi.purchaseEntries(SLOT_PRICE, 11, powerCycle);
@@ -263,15 +265,15 @@ contract KhoopDefiTest is Test {
 
         console.log("Global stats - total entries:", totalEntriesPurchased);
         console.log("Global stats - total users:", totalUsers);
-        console.log("Global stats - total referrer bonus paid:", totalReffererBonusPaid / 1e6);
-        console.log("Global stats - total slot fill paid:", totalSlotFillPaid / 1e6);
+        console.log("Global stats - total referrer bonus paid:", totalReffererBonusPaid / 1e18);
+        console.log("Global stats - total slot fill paid:", totalSlotFillPaid / 1e18);
         console.log("Global stats - total entries completed:", totalEntriesCompleted);
         console.log("Next entry ID:", khoopDefi.nextEntryId());
-        console.log("Buyback accumulated:", khoopDefi.getBuybackAccumulated() / 1e6);
+        console.log("Buyback accumulated:", khoopDefi.getBuybackAccumulated() / 1e18);
 
         // Test user stats after purchase
         address testUser = address(uint160(120000));
-        usdt.mint(testUser, 1000e6);
+        usdt.mint(testUser, 1000e18);
 
         vm.startPrank(testUser);
         usdt.approve(address(khoopDefi), SLOT_PRICE);
