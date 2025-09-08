@@ -24,6 +24,7 @@
     "0x9EBAFaad6A9D13b2D03Dada966b52F4C2a6671dd"
   ],
   "additional": {
+    "contingency": "0x218922b1569f2945Ba5a0f3ef78f1e852219DbC2",
     "buyback": "0xF081EFBd6B6bF95298Ea2173Ce8282E53f2d61FD",
     "PowerLine": "0x218922b1569f2945Ba5a0f3ef78f1e852219DbC2"
   }
