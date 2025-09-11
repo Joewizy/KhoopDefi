@@ -56,7 +56,7 @@ contract KhoopDefiTest is Test {
             address refferer = powerCycle;
             vm.startPrank(user);
             uint256 beforeGas = gasleft();
-            khoopDefi.purchaseEntries(SLOT_PRICE * 10, 10, refferer);
+            khoopDefi.purchaseEntries(10, refferer);
             uint256 used = beforeGas - gasleft();
             totalGas += used;
             if (used > maxGas) maxGas = used;
@@ -82,14 +82,14 @@ contract KhoopDefiTest is Test {
         // Register referrer first
         vm.startPrank(referrer);
         usdt.approve(address(khoopDefi), SLOT_PRICE);
-        khoopDefi.purchaseEntries(SLOT_PRICE, 1, powerCycle);
+        khoopDefi.purchaseEntries(1, powerCycle);
         vm.stopPrank();
 
         // User1 purchases with referrer
         vm.startPrank(user1);
         usdt.approve(address(khoopDefi), SLOT_PRICE);
         uint256 referrerBalanceBefore = usdt.balanceOf(referrer);
-        khoopDefi.purchaseEntries(SLOT_PRICE, 1, referrer);
+        khoopDefi.purchaseEntries(1, referrer);
         uint256 referrerBalanceAfter = usdt.balanceOf(referrer);
         vm.stopPrank();
 
@@ -110,7 +110,7 @@ contract KhoopDefiTest is Test {
         for (uint256 i = 0; i < 3; i++) {
             address user = address(uint160(10000 + i));
             vm.startPrank(user);
-            khoopDefi.purchaseEntries(SLOT_PRICE, 1, powerCycle);
+            khoopDefi.purchaseEntries(1, powerCycle);
             vm.stopPrank();
         }
 
@@ -120,7 +120,7 @@ contract KhoopDefiTest is Test {
         // This 4th purchase should trigger auto-fill (will reach $12)
         address triggerUser = address(uint160(10000 + 3));
         vm.startPrank(triggerUser);
-        khoopDefi.purchaseEntries(SLOT_PRICE, 1, powerCycle);
+        khoopDefi.purchaseEntries(1, powerCycle);
         vm.stopPrank();
 
         uint256 buybackAfter = khoopDefi.getBuybackAccumulated();
@@ -138,7 +138,7 @@ contract KhoopDefiTest is Test {
         vm.startPrank(testUser);
         usdt.approve(address(khoopDefi), SLOT_PRICE);
         uint256 balanceBefore = usdt.balanceOf(testUser);
-        khoopDefi.purchaseEntries(SLOT_PRICE, 1, powerCycle);
+        khoopDefi.purchaseEntries(1, powerCycle);
         vm.stopPrank();
 
         // Simulate cycle completion by triggering buyback auto-fill
@@ -150,7 +150,7 @@ contract KhoopDefiTest is Test {
             address user = address(uint160(10000 + i)); // FIXED: Use same range as _prepareUsers
             vm.startPrank(user);
             usdt.approve(address(khoopDefi), SLOT_PRICE);
-            khoopDefi.purchaseEntries(SLOT_PRICE, 1, powerCycle);
+            khoopDefi.purchaseEntries(1, powerCycle);
             vm.stopPrank();
         }
 
@@ -174,29 +174,9 @@ contract KhoopDefiTest is Test {
         usdt.approve(address(khoopDefi), 10000e18);
         
         vm.expectRevert(KhoopDefi.KhoopDefi__ExceedsTransactionLimit.selector);
-        khoopDefi.purchaseEntries(SLOT_PRICE, 11, powerCycle);
+        khoopDefi.purchaseEntries(11, powerCycle);
 
         vm.stopPrank();
-    }
-
-    function testAdminFunctions() public {
-        // Test updating team wallets
-        address[4] memory newCoreTeam;
-        address[15] memory newInvestors;
-
-        for (uint256 i = 0; i < 4; i++) {
-            newCoreTeam[i] = address(uint160(50000 + i));
-        }
-        for (uint256 i = 0; i < 15; i++) {
-            newInvestors[i] = address(uint160(60000 + i));
-        }
-
-        address newReserve = address(uint160(70000));
-        address newBuyback = address(uint160(80000));
-        address newPowerCycle = address(uint160(90000));
-
-        // Team wallet update function was removed
-        console.log("Team wallet update test skipped - function removed");
     }
 
     function testErrorConditions() public {
@@ -205,7 +185,7 @@ contract KhoopDefiTest is Test {
         // Test insufficient USDT
         vm.startPrank(testUser);
         vm.expectRevert();
-        khoopDefi.purchaseEntries(SLOT_PRICE, 1, powerCycle);
+        khoopDefi.purchaseEntries(1, powerCycle);
         vm.stopPrank();
 
         // Test invalid referrer (self-referral)
@@ -213,7 +193,7 @@ contract KhoopDefiTest is Test {
         vm.startPrank(testUser);
         usdt.approve(address(khoopDefi), SLOT_PRICE);
         vm.expectRevert();
-        khoopDefi.purchaseEntries(SLOT_PRICE, 1, testUser); // Self-referral should fail
+        khoopDefi.purchaseEntries(1, testUser); // Self-referral should fail
         vm.stopPrank();
 
         console.log("Error conditions tested successfully");
@@ -233,7 +213,7 @@ contract KhoopDefiTest is Test {
             vm.startPrank(user);
 
             uint256 gasBefore = gasleft();
-            khoopDefi.purchaseEntries(SLOT_PRICE, 1, powerCycle);
+            khoopDefi.purchaseEntries(1, powerCycle);
             uint256 gasUsed = gasBefore - gasleft();
 
             totalGas += gasUsed;
@@ -277,7 +257,7 @@ contract KhoopDefiTest is Test {
 
         vm.startPrank(testUser);
         usdt.approve(address(khoopDefi), SLOT_PRICE);
-        khoopDefi.purchaseEntries(SLOT_PRICE, 1, powerCycle);
+        khoopDefi.purchaseEntries(1, powerCycle);
         vm.stopPrank();
 
         // Check user data
@@ -312,7 +292,7 @@ contract KhoopDefiTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             address user = address(uint160(10000 + i));
             vm.startPrank(user);
-            khoopDefi.purchaseEntries(SLOT_PRICE, 1, powerCycle);
+            khoopDefi.purchaseEntries(1, powerCycle);
             vm.stopPrank();
         }
 

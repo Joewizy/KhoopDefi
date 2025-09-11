@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
@@ -63,10 +63,10 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     uint256 private constant CONTINGENCY_SHARE = 1e17; // $0.10
     uint256 private constant ENTRY_COST = 15e18;        // $15 entry cost (capital)
     uint256 private constant PROFIT_AMOUNT = 5e18;      // $5 profit
-    uint256 private constant CYCLE_DURATION = 3 days;   // 1-3 days cycle
+    uint256 private constant CYCLE_DURATION = 1 days;   // 1 day cycle (failsafe)
     uint256 private constant MAX_ENTRIES_PER_TX = 10;
     uint256 private constant MAX_ENTRIES_PER_DAY = 50;
-    uint256 private constant REFERRER_BONUS_PER_ENTRY = 1e18;   // 1 USDT per entry
+    uint256 private constant REFERRER_WELCOME_BONUS = 1e18;   // 1 USDT one-time welcome bonus
     uint256 private constant MIN_ENTRY_INTERVAL = 10 minutes;
     uint256 private constant BUYBACK_PER_ENTRY = 3e18;  // $3 per entry
     uint256 private constant BUYBACK_THRESHOLD = 10e18; // $10 threshold
@@ -96,7 +96,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
 
     // ============ Events ============
     event EntryPurchased(uint256 indexed entryId, address indexed user, address indexed refferer, uint256 amount);
-    event CycleCompleted(uint256 indexed entryId, address indexed user, uint256 capitalReturned, uint256 profitPaid);
+    event CycleCompleted(uint256 indexed entryId, address indexed user, uint256 profitPaid);
     event ReffererBonusPaid(address indexed refferer, address indexed referred, uint256 amount);
     event UserRegistered(address indexed user, address indexed refferer);
     event BalanceWithdrawn(address indexed user, uint256 amount);
@@ -248,7 +248,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         // Pay only profit ($5) - capital ($15) stays locked to powerline
         usdt.safeTransfer(msg.sender, PROFIT_AMOUNT);
 
-        emit CycleCompleted(entryId, msg.sender, 0, PROFIT_AMOUNT);
+        emit CycleCompleted(entryId, msg.sender, PROFIT_AMOUNT);
     }
 
     // ============ Admin Functions ============
@@ -293,7 +293,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
             // Pay one-time referral bonus to the refferer for this unique user
             if (!referralBonusPaid[user]) {
                 referralBonusPaid[user] = true;
-                uint256 bonus = REFERRER_BONUS_PER_ENTRY;
+                uint256 bonus = REFERRER_WELCOME_BONUS;
                 users[refferer].reffererBonusEarned += bonus;
                 globalStats.totalReffererBonusPaid += bonus;
                 usdt.safeTransfer(refferer, bonus);
@@ -349,12 +349,12 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         uint256 processed = 0;
         uint256 maxIterations = MAX_AUTO_FILLS_PER_PURCHASE;
         
-        // Process up to MAX_AUTO_FILLS_PER_PURCHASE auto-fills
+        // Autofill 5 entries at a time
         while (buybackAccumulated >= BUYBACK_THRESHOLD && processed < maxIterations) {
             uint256 oldestEntryId = _nextPendingEntry();
             if (oldestEntryId == 0) break; // No pending entries
             
-            // Try to process one auto-fill
+            // Try to autofill one entry
             bool success = _processSingleAutoFill(oldestEntryId);
             if (!success) break; // Stop on failure
             
@@ -374,9 +374,8 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
             return false;
         }
         
-        // Check contract balance for profit payout only
         if (usdt.balanceOf(address(this)) < PROFIT_AMOUNT) {
-            return false; // Insufficient balance
+            return false; 
         }
         
         // Update user stats
@@ -398,7 +397,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         // Advance queue pointer
         _advancePendingStart();
         
-        emit CycleCompleted(entryId, entry.user, 0, PROFIT_AMOUNT);
+        emit CycleCompleted(entryId, entry.user, PROFIT_AMOUNT);
         emit BuybackAutoFill(entryId, BUYBACK_THRESHOLD);
         
         return true;
@@ -436,6 +435,10 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
 
     function getBuybackAccumulated() external view returns (uint256) {
         return buybackAccumulated;
+    }
+
+    function getDistributedTeamShares() external view returns (uint256) {
+        return distributedTeamShares;
     }
 
     /**
