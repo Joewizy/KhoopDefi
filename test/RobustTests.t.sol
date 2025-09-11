@@ -23,15 +23,15 @@ contract TestKhoopDefi is KhoopDefi {
     function setBuybackAccumulated(uint256 v) external {
         buybackAccumulated = v;
     }
-    
+
     function getPendingStartId() external view returns (uint256) {
         return pendingStartId;
     }
-    
+
     function getNextEntryId() external view returns (uint256) {
         return nextEntryId;
     }
-    
+
     function getEntry(uint256 entryId) external view returns (uint256, address, uint256, bool) {
         Entry memory entry = entries[entryId];
         return (entry.entryId, entry.user, entry.timestamp, entry.isCompleted);
@@ -75,13 +75,15 @@ contract RobustTests is Test {
 
         // fill investor addresses
         for (uint256 i = 0; i < 15; i++) {
-            investors[i] = address(uint160(uint256(keccak256(abi.encodePacked("INV", i))))); 
+            investors[i] = address(uint160(uint256(keccak256(abi.encodePacked("INV", i)))));
         }
 
         // prepare core team array and investors array for constructor
         address[4] memory coreTeam = [core1, core2, core3, core4];
         address[15] memory invAddrs;
-        for (uint256 i = 0; i < 15; i++) invAddrs[i] = investors[i];
+        for (uint256 i = 0; i < 15; i++) {
+            invAddrs[i] = investors[i];
+        }
 
         // deploy the TestKhoopDefi
         khoop = new TestKhoopDefi(coreTeam, invAddrs, reserve, buyback, powerCycle, address(usdt));
@@ -95,7 +97,7 @@ contract RobustTests is Test {
     function test_gasLimitProtection() public {
         // Set buyback pot to $1000 (100 thresholds)
         khoop.setBuybackAccumulated(1000e6);
-        
+
         // Create 100 pending entries
         // for every purchase 5 auto-fills are processed
         // so in total 500 auto-fills are processed
@@ -107,26 +109,26 @@ contract RobustTests is Test {
             vm.prank(user);
             khoop.purchaseEntries(1, powerCycle);
         }
-        
+
         // Single purchase should only process 5 auto-fills (not 100)
         uint256 gasBefore = gasleft();
         vm.prank(buyer);
         khoop.purchaseEntries(10, powerCycle);
         uint256 gasUsed = gasBefore - gasleft();
-        
+
         // Should use reasonable gas (not hit block limit)
         assertLt(gasUsed, 10_000_000, "Gas usage too high - potential gas limit issue");
-        
+
         // Correct math: 100 users × 3e6 = 300e6 added to buyback
         // Total buyback: 1000e6 + 300e6 = 1300e6 (130 thresholds)
         // 5 auto-fills per purchase * 100 purchases = 500 auto-fills
         // Early purchases consume buyback, later purchases have less available
         // so the final buyback should be less than 1000e6
         uint256 finalBuyback = khoop.getBuybackAccumulated();
-        
+
         // Should be significantly reduced from initial 1000e6
         assertTrue(finalBuyback < 1000e18, "Buyback should be reduced from initial 1000e18");
-        
+
         // Log the actual value for debugging
         console.log("Final buyback amount:", finalBuyback);
         console.log("Expected: significantly less than 1000e6 due to auto-fill processing");
@@ -136,7 +138,7 @@ contract RobustTests is Test {
     function test_insufficientBalanceGracefulExit() public {
         // Set large buyback pot
         khoop.setBuybackAccumulated(100e18);
-        
+
         // Create pending entries
         for (uint256 i = 0; i < 10; i++) {
             address user = address(uint160(2000 + i));
@@ -146,7 +148,7 @@ contract RobustTests is Test {
             vm.prank(user);
             khoop.purchaseEntries(1, powerCycle);
         }
-        
+
         // Drain contract USDT balance to leave only $10 (enough for 2 payouts of $5 each)
         uint256 currentBalance = usdt.balanceOf(address(khoop));
         if (currentBalance > 10e18) {
@@ -154,12 +156,12 @@ contract RobustTests is Test {
             vm.prank(address(khoop));
             usdt.transfer(owner, drainAmount);
         }
-        
+
         // Purchase should still work, but auto-fills stop when balance insufficient
         uint256 buybackBefore = khoop.getBuybackAccumulated();
         vm.prank(buyer);
         khoop.purchaseEntries(10, powerCycle);
-        
+
         // Should not revert, but process fewer auto-fills due to insufficient balance
         uint256 buybackAfter = khoop.getBuybackAccumulated();
         assertTrue(buybackAfter > 0, "Buyback should still have remaining funds");
@@ -177,16 +179,16 @@ contract RobustTests is Test {
             vm.prank(users[i]);
             khoop.purchaseEntries(1, powerCycle);
         }
-        
+
         // Set buyback pot to process 5 auto-fills (50e6 = 5 * 10e6)
         khoop.setBuybackAccumulated(50e18);
-        
+
         // Purchase should trigger auto-fills
         uint256 startId = khoop.getPendingStartId();
         vm.prank(buyer);
         khoop.purchaseEntries(10, powerCycle);
         uint256 endId = khoop.getPendingStartId();
-        
+
         // Queue should advance by at least 1 (entries that reached cycle 3)
         // Note: Queue only advances when entries are marked as completed (cycle 3)
         assertTrue(endId > startId, "Queue should advance by at least 1 position");
@@ -206,25 +208,25 @@ contract RobustTests is Test {
             vm.prank(users[i]);
             khoop.purchaseEntries(1, powerCycle);
         }
-        
+
         // Set buyback pot to process 5 auto-fills (50e6 = 5 * 10e6)
         khoop.setBuybackAccumulated(50e18);
-        
+
         // Record initial queue position
         uint256 initialQueuePos = khoop.getPendingStartId();
-        
+
         // Purchase should trigger 5 auto-fills
         vm.prank(buyer);
         khoop.purchaseEntries(10, powerCycle);
-        
+
         // Record final queue position
         uint256 finalQueuePos = khoop.getPendingStartId();
-        
+
         // The fix ensures fair processing: queue should advance properly
         // Before fix: same entry processed multiple times, queue barely advances
         // After fix: different entries processed, queue advances more fairly
         assertTrue(finalQueuePos > initialQueuePos, "Queue should advance after auto-fills");
-        
+
         // The key test: verify that the fix prevents the same entry from being processed multiple times
         // by checking that the queue advancement is reasonable
         uint256 queueAdvancement = finalQueuePos - initialQueuePos;
@@ -240,19 +242,19 @@ contract RobustTests is Test {
         usdt.approve(address(khoop), type(uint256).max);
         vm.prank(user);
         khoop.purchaseEntries(1, powerCycle);
-        
+
         uint256 entryId = khoop.getNextEntryId() - 1;
-        
+
         // Set buyback pot for auto-fill
         khoop.setBuybackAccumulated(10e18);
-        
+
         // Process auto-fill
         vm.prank(buyer);
         khoop.purchaseEntries(10, powerCycle);
-        
+
         // Check entry is completed (single cycle now)
         (uint256 id, address entryUser, uint256 timestamp, bool isCompleted) = khoop.getEntry(entryId);
-        
+
         assertTrue(isCompleted, "Entry should be completed after 1 cycle");
         assertEq(entryUser, user, "Entry user should match");
         assertEq(id, entryId, "Entry ID should match");
@@ -262,11 +264,11 @@ contract RobustTests is Test {
     function test_zeroPendingEntries() public {
         // Set large buyback pot but no pending entries
         khoop.setBuybackAccumulated(100e18);
-        
+
         // Purchase should not revert
         vm.prank(buyer);
         khoop.purchaseEntries(10, powerCycle);
-        
+
         // Buyback pot should have new contribution added and may process up to 5 thresholds
         uint256 finalBuyback = khoop.getBuybackAccumulated();
 
@@ -285,15 +287,15 @@ contract RobustTests is Test {
     // function test_reentrancyProtection() public {
     //     // Create malicious contract
     //     MaliciousContract malicious = new MaliciousContract(address(khoop), address(usdt));
-        
+
     //     // Give malicious contract USDT
     //     usdt.mint(address(malicious), 1000e18);
     //     vm.prank(address(malicious)b);
     //     usdt.approve(address(khoop), type(uint256).max);
-        
+
     //     // Set up buyback pot
     //     khoop.setBuybackAccumulated(20e18);
-        
+
     //     // Should revert due to reentrancy protection
     //     vm.expectRevert();
     //     malicious.attack();
@@ -303,7 +305,7 @@ contract RobustTests is Test {
     function test_eventEmission() public {
         // Set buyback pot
         khoop.setBuybackAccumulated(50e18);
-        
+
         // Create pending entries
         for (uint256 i = 0; i < 6; i++) {
             address user = address(uint160(5000 + i));
@@ -313,16 +315,16 @@ contract RobustTests is Test {
             vm.prank(user);
             khoop.purchaseEntries(1, powerCycle);
         }
-        
+
         // Purchase should work and process auto-fills
         vm.prank(buyer);
         khoop.purchaseEntries(10, powerCycle);
-        
+
         // Verify buyback pot was reduced (exact amount depends on how many auto-fills were processed)
         uint256 finalBuyback = khoop.getBuybackAccumulated();
         assertTrue(finalBuyback < 80e18, "Buyback should be reduced from initial 50e18 + 30e18 = 80e18");
         assertTrue(finalBuyback > 0, "Buyback should not be zero");
-        
+
         console.log("Event emission test - Final buyback:", finalBuyback);
     }
 
@@ -331,11 +333,11 @@ contract RobustTests is Test {
         // Test the 10 entry limit
         uint256 maxEntries = 10;
         uint256 amount = 15e18 * maxEntries;
-        
+
         // Should work with 10 entries
         vm.prank(buyer);
         khoop.purchaseEntries(maxEntries, powerCycle);
-        
+
         // Should fail with 11 entries
         vm.expectRevert();
         vm.prank(buyer);
@@ -349,11 +351,11 @@ contract RobustTests is Test {
         usdt.mint(user, 1000e18);
         vm.prank(user);
         usdt.approve(address(khoop), type(uint256).max);
-        
+
         // First purchase should work
         vm.prank(user);
         khoop.purchaseEntries(1, powerCycle);
-        
+
         // Try to exceed daily limit (50 entries)
         vm.expectRevert();
         vm.prank(user);
@@ -367,19 +369,19 @@ contract RobustTests is Test {
         usdt.mint(user, 1000e18);
         vm.prank(user);
         usdt.approve(address(khoop), type(uint256).max);
-        
+
         // First purchase should work
         vm.prank(user);
         khoop.purchaseEntries(1, powerCycle);
-        
+
         // Try to purchase again immediately (should fail due to 10min cooldown)
         vm.expectRevert();
         vm.prank(user);
         khoop.purchaseEntries(1, powerCycle);
-        
+
         // Fast forward 10 minutes + 1 second
         vm.warp(block.timestamp + 601);
-        
+
         // Now should work
         vm.prank(user);
         khoop.purchaseEntries(1, powerCycle);
@@ -392,13 +394,13 @@ contract RobustTests is Test {
         vm.prank(buyer);
         // Note: This test is no longer valid since amount is calculated automatically
         // khoop.purchaseEntries(14e18, 1, powerCycle); // $14 instead of $15
-        
+
         // Test overpayment
         vm.expectRevert();
         vm.prank(buyer);
         // Note: This test is no longer valid since amount is calculated automatically
         // khoop.purchaseEntries(16e18, 1, powerCycle); // $16 instead of $15
-        
+
         // Test correct payment
         vm.prank(buyer);
         khoop.purchaseEntries(1, powerCycle); // Should work
@@ -407,12 +409,12 @@ contract RobustTests is Test {
     /// @notice Test 12: Invalid Referrer Protection
     function test_invalidReferrerProtection() public {
         address invalidReferrer = address(0x8000);
-        
+
         // Should fail with invalid referrer
         vm.expectRevert();
         vm.prank(buyer);
         khoop.purchaseEntries(1, invalidReferrer);
-        
+
         // Should work with valid referrer (powerCycle)
         vm.prank(buyer);
         khoop.purchaseEntries(1, powerCycle);
@@ -423,16 +425,16 @@ contract RobustTests is Test {
         // Pause the contract
         vm.prank(address(this));
         khoop.pause();
-        
+
         // Purchase should fail when paused
         vm.expectRevert();
         vm.prank(buyer);
         khoop.purchaseEntries(1, powerCycle);
-        
+
         // Unpause the contract
         vm.prank(address(this));
         khoop.unpause();
-        
+
         // Purchase should work after unpause
         vm.prank(buyer);
         khoop.purchaseEntries(1, powerCycle);
@@ -442,7 +444,7 @@ contract RobustTests is Test {
     function test_completeCycleFunctionality() public {
         // Ensure contract has enough USDT for payouts
         usdt.mint(address(khoop), 1000e18);
-        
+
         // Create entry
         address user = address(0x9000);
         usdt.mint(user, 1000e18);
@@ -450,21 +452,21 @@ contract RobustTests is Test {
         usdt.approve(address(khoop), type(uint256).max);
         vm.prank(user);
         khoop.purchaseEntries(1, powerCycle);
-        
+
         uint256 entryId = khoop.getNextEntryId() - 1;
-        
+
         // Try to complete cycle before 3 days
         vm.expectRevert();
         vm.prank(user);
         khoop.completeCycle(entryId);
-        
+
         // Fast forward 3 days + 1 second
         vm.warp(block.timestamp + 259201); // 3 days + 1 second
-        
+
         // Now should work
         vm.prank(user);
         khoop.completeCycle(entryId);
-        
+
         // Check entry is completed (single cycle now)
         (uint256 id, address entryUser, uint256 timestamp, bool isCompleted) = khoop.getEntry(entryId);
         assertTrue(isCompleted, "Entry should be completed after 1 cycle");

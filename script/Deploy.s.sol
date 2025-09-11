@@ -54,14 +54,7 @@ contract DeployKhoopDefi is Script {
         address usdt = address(usdtToken);
 
         // Deploy with addresses from JSON/env
-        KhoopDefi khoopDefi = new KhoopDefi(
-            coreTeam,
-            investors,
-            reserve,
-            buyback,
-            powerCycle,
-            usdt
-        );
+        KhoopDefi khoopDefi = new KhoopDefi(coreTeam, investors, reserve, buyback, powerCycle, usdt);
 
         usdtToken.mint(address(khoopDefi), USDT_AMOUNT);
 

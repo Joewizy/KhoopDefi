@@ -127,7 +127,9 @@ contract KhoopDefiTest is Test {
         console.log("Buyback after auto-fill:", buybackAfter / 1e18); // Should be $2 ($12 - $10)
 
         // Buyback should be reduced by threshold amount ($10)
-        assertEq(buybackAfter, buybackBefore + 3e18 - buybackThreshold, "Buyback should decrease by $10 after auto-fill");
+        assertEq(
+            buybackAfter, buybackBefore + 3e18 - buybackThreshold, "Buyback should decrease by $10 after auto-fill"
+        );
     }
 
     function testCycleCompletion() public {
@@ -172,7 +174,7 @@ contract KhoopDefiTest is Test {
 
         vm.startPrank(testUser);
         usdt.approve(address(khoopDefi), 10000e18);
-        
+
         vm.expectRevert(KhoopDefi.KhoopDefi__ExceedsTransactionLimit.selector);
         khoopDefi.purchaseEntries(11, powerCycle);
 

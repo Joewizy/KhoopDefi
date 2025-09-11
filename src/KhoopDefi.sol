@@ -7,11 +7,11 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-    /**
-     * @title Khoop-Defi
-     * @notice Slot-based contribution system with automated payouts and referral rewards
-     * @dev Entry: $15, Profit Only: $5, Capital Locked to Powerline
-     */
+/**
+ * @title Khoop-Defi
+ * @notice Slot-based contribution system with automated payouts and referral rewards
+ * @dev Entry: $15, Profit Only: $5, Capital Locked to Powerline
+ */
 contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     using SafeERC20 for IERC20;
 
@@ -29,16 +29,16 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
 
     // ============ Types ============
     struct User {
-        address refferer;           // Refferer who gets commission
-        uint256 entriesPurchased;  // Total entries bought
-        uint256 entriesFilled;     // Completed cycles
+        address refferer; // Refferer who gets commission
+        uint256 entriesPurchased; // Total entries bought
+        uint256 entriesFilled; // Completed cycles
         uint256 reffererBonusEarned; // Commission earned from refferers
-        uint256 slotFillEarnings;  // Earnings from completed cycles
-        uint256 totalReferrals;    // Number of direct referrals
-        uint256 lastEntryAt;       // Anti-spam protection
-        uint256 dailyEntries;      // Daily entry counter
-        uint256 lastDailyReset;    // Daily reset timestamp
-        bool isRegistered;         // Explicit registration flag
+        uint256 slotFillEarnings; // Earnings from completed cycles
+        uint256 totalReferrals; // Number of direct referrals
+        uint256 lastEntryAt; // Anti-spam protection
+        uint256 dailyEntries; // Daily entry counter
+        uint256 lastDailyReset; // Daily reset timestamp
+        bool isRegistered; // Explicit registration flag
     }
 
     struct Entry {
@@ -59,16 +59,16 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
 
     // ============ Constants ============
     uint256 private constant CORE_TEAM_SHARE = 15e16; // $0.15 each (4 wallets)
-    uint256 private constant INVESTORS_SHARE = 2e16;  // $0.02 each (15 wallets)  
+    uint256 private constant INVESTORS_SHARE = 2e16; // $0.02 each (15 wallets)
     uint256 private constant CONTINGENCY_SHARE = 1e17; // $0.10
-    uint256 private constant ENTRY_COST = 15e18;        // $15 entry cost (capital)
-    uint256 private constant PROFIT_AMOUNT = 5e18;      // $5 profit
-    uint256 private constant CYCLE_DURATION = 1 days;   // 1 day cycle (failsafe)
+    uint256 private constant ENTRY_COST = 15e18; // $15 entry cost (capital)
+    uint256 private constant PROFIT_AMOUNT = 5e18; // $5 profit
+    uint256 private constant CYCLE_DURATION = 1 days; // 1 day cycle (failsafe)
     uint256 private constant MAX_ENTRIES_PER_TX = 10;
     uint256 private constant MAX_ENTRIES_PER_DAY = 50;
-    uint256 private constant REFERRER_WELCOME_BONUS = 1e18;   // 1 USDT one-time welcome bonus
+    uint256 private constant REFERRER_WELCOME_BONUS = 1e18; // 1 USDT one-time welcome bonus
     uint256 private constant MIN_ENTRY_INTERVAL = 10 minutes;
-    uint256 private constant BUYBACK_PER_ENTRY = 3e18;  // $3 per entry
+    uint256 private constant BUYBACK_PER_ENTRY = 3e18; // $3 per entry
     uint256 private constant BUYBACK_THRESHOLD = 10e18; // $10 threshold
 
     // ============ State Variables ============
@@ -89,8 +89,8 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     // ============ Global Tracking ============
     GlobalStats public globalStats;
     uint256 public nextEntryId = 1;
-    uint256 public buybackAccumulated;  // Track accumulated buyback funds
-    uint256 public pendingStartId = 1;  // Queue pointer to oldest pending entry
+    uint256 public buybackAccumulated; // Track accumulated buyback funds
+    uint256 public pendingStartId = 1; // Queue pointer to oldest pending entry
     uint256 public distributedTeamShares;
     uint256 public constant MAX_AUTO_FILLS_PER_PURCHASE = 5; // Cap for safety
 
@@ -100,7 +100,9 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     event ReffererBonusPaid(address indexed refferer, address indexed referred, uint256 amount);
     event UserRegistered(address indexed user, address indexed refferer);
     event BalanceWithdrawn(address indexed user, uint256 amount);
-    event BatchEntryPurchased(uint256 startId, uint256 endId, address indexed user, address indexed refferer, uint256 amount);
+    event BatchEntryPurchased(
+        uint256 startId, uint256 endId, address indexed user, address indexed refferer, uint256 amount
+    );
     event BuybackAutoFill(uint256 indexed entryId, uint256 amount);
     event TeamSharesDistributed(uint256 indexed distributedTeamShares);
     event MultipleAutoFillsProcessed(uint256 count, uint256 remainingBuyback);
@@ -124,7 +126,14 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     }
 
     // ============ Constructor ============
-    constructor(address[4] memory _coreTeam, address[15] memory _investors, address _reserve, address _buyback, address _powerCycle, address _usdt) Ownable(msg.sender) {
+    constructor(
+        address[4] memory _coreTeam,
+        address[15] memory _investors,
+        address _reserve,
+        address _buyback,
+        address _powerCycle,
+        address _usdt
+    ) Ownable(msg.sender) {
         if (_reserve == address(0) || _buyback == address(0) || _powerCycle == address(0) || _usdt == address(0)) {
             revert KhoopDefi__ZeroAddress();
         }
@@ -145,7 +154,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         powerCycleWallet = _powerCycle;
         _registerUser(powerCycleWallet, address(0));
         reserveWallet = _reserve;
-        buybackWallet = _buyback;   
+        buybackWallet = _buyback;
         usdt = IERC20(_usdt);
     }
 
@@ -155,9 +164,9 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
      * @param numEntries Number of entries to purchase (max 10 per tx)
      * @param refferer Refferer address for commission
      */
-    function purchaseEntries(uint256 amount, uint256 numEntries, address refferer) 
-        external 
-        nonReentrant 
+    function purchaseEntries(uint256 numEntries, address refferer)
+        external
+        nonReentrant
         whenNotPaused
         validRefferer(refferer)
     {
@@ -165,17 +174,13 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
             revert KhoopDefi__ExceedsTransactionLimit();
         }
 
-        if (usdt.balanceOf(msg.sender) < amount) {
-            revert KhoopDefi__InsufficientBalance();
-        }
-
         // Validate exact payment amount
         uint256 totalCost = ENTRY_COST * numEntries;
-        if (amount != totalCost) {
+        if (usdt.balanceOf(msg.sender) < totalCost) {
             revert KhoopDefi__MustPayExactAmount();
         }
 
-        usdt.safeTransferFrom(msg.sender, address(this), amount);
+        usdt.safeTransferFrom(msg.sender, address(this), totalCost);
 
         // Register user if first time
         if (!users[msg.sender].isRegistered) {
@@ -186,8 +191,8 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         _updateAndCheckDailyLimits(msg.sender, numEntries);
 
         // 10 minutes cool down
-        if (users[msg.sender].lastEntryAt != 0 && 
-            block.timestamp < users[msg.sender].lastEntryAt + MIN_ENTRY_INTERVAL) {
+        if (users[msg.sender].lastEntryAt != 0 && block.timestamp < users[msg.sender].lastEntryAt + MIN_ENTRY_INTERVAL)
+        {
             revert KhoopDefi__TimeCoolDown();
         }
 
@@ -199,19 +204,19 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         // Update stats
         users[msg.sender].entriesPurchased += numEntries;
         users[msg.sender].lastEntryAt = block.timestamp;
-        globalStats.totalEntriesPurchased += numEntries;        
+        globalStats.totalEntriesPurchased += numEntries;
         buybackAccumulated += (numEntries * BUYBACK_PER_ENTRY);
-        
+
         _distributeTeamShares(numEntries);
 
         _processMultipleAutoFills();
 
         emit BatchEntryPurchased(
-            nextEntryId - numEntries,  // startId
-            nextEntryId - 1,           // endId
+            nextEntryId - numEntries, // startId
+            nextEntryId - 1, // endId
             msg.sender,
             refferer,
-            amount
+            totalCost
         );
     }
 
@@ -308,7 +313,9 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     function _advancePendingStart() internal {
         // Advance past entries that are fully completed (isCompleted = true)
         while (pendingStartId < nextEntryId && entries[pendingStartId].isCompleted) {
-            unchecked { pendingStartId++; }
+            unchecked {
+                pendingStartId++;
+            }
         }
     }
 
@@ -319,13 +326,8 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     }
 
     function _createEntry(address user) internal {
-        entries[nextEntryId] = Entry({
-            entryId: nextEntryId,
-            user: user,
-            timestamp: block.timestamp,
-            isCompleted: false,
-            completionTime: 0
-        });
+        entries[nextEntryId] =
+            Entry({entryId: nextEntryId, user: user, timestamp: block.timestamp, isCompleted: false, completionTime: 0});
 
         userEntries[user].push(nextEntryId);
         nextEntryId++;
@@ -348,19 +350,19 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     function _processMultipleAutoFills() internal {
         uint256 processed = 0;
         uint256 maxIterations = MAX_AUTO_FILLS_PER_PURCHASE;
-        
+
         // Autofill 5 entries at a time
         while (buybackAccumulated >= BUYBACK_THRESHOLD && processed < maxIterations) {
             uint256 oldestEntryId = _nextPendingEntry();
             if (oldestEntryId == 0) break; // No pending entries
-            
+
             // Try to autofill one entry
             bool success = _processSingleAutoFill(oldestEntryId);
             if (!success) break; // Stop on failure
-            
+
             processed++;
         }
-        
+
         if (processed > 0) {
             emit MultipleAutoFillsProcessed(processed, buybackAccumulated);
         }
@@ -368,38 +370,38 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
 
     function _processSingleAutoFill(uint256 entryId) internal returns (bool) {
         Entry storage entry = entries[entryId];
-        
+
         // Validate entry exists and is not completed
         if (entryId == 0 || entry.entryId == 0 || entry.isCompleted) {
             return false;
         }
-        
+
         if (usdt.balanceOf(address(this)) < PROFIT_AMOUNT) {
-            return false; 
+            return false;
         }
-        
+
         // Update user stats
         users[entry.user].entriesFilled++;
         users[entry.user].slotFillEarnings += PROFIT_AMOUNT;
-        
+
         // Update global stats
         globalStats.totalEntriesCompleted++;
         globalStats.totalSlotFillPaid += PROFIT_AMOUNT;
-        
+
         // Consume buyback threshold
         buybackAccumulated -= BUYBACK_THRESHOLD;
-        
+
         // Mark entry as completed and pay profit only
         entry.isCompleted = true;
         entry.completionTime = block.timestamp;
         usdt.safeTransfer(entry.user, PROFIT_AMOUNT);
-        
+
         // Advance queue pointer
         _advancePendingStart();
-        
+
         emit CycleCompleted(entryId, entry.user, PROFIT_AMOUNT);
         emit BuybackAutoFill(entryId, BUYBACK_THRESHOLD);
-        
+
         return true;
     }
 
@@ -407,21 +409,21 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
      * @notice Distribute team shares immediately on each purchase
      * @dev Fixed $1 per entry distributed to team (60% core team, 30% investors, 10% contingency)
      */
-    function _distributeTeamShares(uint256 numEntries) internal {        
+    function _distributeTeamShares(uint256 numEntries) internal {
         uint256 totalCorePerWallet = CORE_TEAM_SHARE * numEntries;
         uint256 totalInvestorPerWallet = INVESTORS_SHARE * numEntries;
         uint256 totalContingency = CONTINGENCY_SHARE * numEntries;
-        
+
         // Distribute to core team
         for (uint256 i = 0; i < 4; i++) {
             usdt.safeTransfer(coreTeamWallet[i], totalCorePerWallet);
         }
-        
+
         // Distribute to investors
         for (uint256 i = 0; i < 15; i++) {
             usdt.safeTransfer(investorsWallet[i], totalInvestorPerWallet);
         }
-        
+
         // Distribute to contingency (reserve) wallet
         usdt.safeTransfer(reserveWallet, totalContingency);
         distributedTeamShares += numEntries;
@@ -444,13 +446,17 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     /**
      * @notice Get user statistics for dashboard
      */
-    function getUserStats(address user) external view returns (
-        uint256 entriesPurchased,
-        uint256 entriesFilled,
-        uint256 reffererBonusEarned,
-        uint256 slotFillEarnings,
-        uint256 totalReferrals
-    ) {
+    function getUserStats(address user)
+        external
+        view
+        returns (
+            uint256 entriesPurchased,
+            uint256 entriesFilled,
+            uint256 reffererBonusEarned,
+            uint256 slotFillEarnings,
+            uint256 totalReferrals
+        )
+    {
         User storage userStats = users[user];
         return (
             userStats.entriesPurchased,
@@ -461,17 +467,20 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         );
     }
 
-
     /**
      * @notice Get global statistics
      */
-    function getGlobalStats() external view returns (
-        uint256 totalUsers,
-        uint256 totalEntriesPurchased,
-        uint256 totalReffererBonusPaid,
-        uint256 totalSlotFillPaid,
-        uint256 totalEntriesCompleted
-    ) {
+    function getGlobalStats()
+        external
+        view
+        returns (
+            uint256 totalUsers,
+            uint256 totalEntriesPurchased,
+            uint256 totalReffererBonusPaid,
+            uint256 totalSlotFillPaid,
+            uint256 totalEntriesCompleted
+        )
+    {
         return (
             globalStats.totalUsers,
             globalStats.totalEntriesPurchased,
@@ -487,14 +496,14 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     function getUserPendingEntries(address user) external view returns (uint256[] memory) {
         uint256[] memory userEntryIds = userEntries[user];
         uint256 pendingCount = 0;
-        
+
         // Count pending entries
         for (uint256 i = 0; i < userEntryIds.length; i++) {
             if (!entries[userEntryIds[i]].isCompleted) {
                 pendingCount++;
             }
         }
-        
+
         // Create array of pending entry IDs
         uint256[] memory pendingEntries = new uint256[](pendingCount);
         uint256 index = 0;
@@ -504,9 +513,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
                 index++;
             }
         }
-        
+
         return pendingEntries;
     }
 }
-
-
