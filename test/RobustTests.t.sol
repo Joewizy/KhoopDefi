@@ -387,25 +387,6 @@ contract RobustTests is Test {
         khoop.purchaseEntries(1, powerCycle);
     }
 
-    /// @notice Test 11: Exact Payment Validation
-    function test_exactPaymentValidation() public {
-        // Test underpayment
-        vm.expectRevert();
-        vm.prank(buyer);
-        // Note: This test is no longer valid since amount is calculated automatically
-        // khoop.purchaseEntries(14e18, 1, powerCycle); // $14 instead of $15
-
-        // Test overpayment
-        vm.expectRevert();
-        vm.prank(buyer);
-        // Note: This test is no longer valid since amount is calculated automatically
-        // khoop.purchaseEntries(16e18, 1, powerCycle); // $16 instead of $15
-
-        // Test correct payment
-        vm.prank(buyer);
-        khoop.purchaseEntries(1, powerCycle); // Should work
-    }
-
     /// @notice Test 12: Invalid Referrer Protection
     function test_invalidReferrerProtection() public {
         address invalidReferrer = address(0x8000);
