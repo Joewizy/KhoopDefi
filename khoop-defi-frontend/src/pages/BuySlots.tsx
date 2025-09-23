@@ -29,15 +29,11 @@ const BuySlots: React.FC = () => {
   const [referrer, setReferrer] = useState('');
   const [isValidReferrer, setIsValidReferrer] = useState(true);
 
-  const { user, isLoading: userloading } = useUserDetails(address as  `0x${string}`);
-  const { stats } = useGlobalStats();
-  const { entry } = useEntry(1);
-  const { pendingEntries } = useUserPendingEntries(address as  `0x${string}`);
-  
-  // console.log("formattedUserStat", user)
-  // console.log("Stats", stats)
-  // console.log("Entry", entry)
-  // console.log("Pending entries", pendingEntries)
+  // User details and stats are not currently used in the component
+  useUserDetails(address as `0x${string}`);
+  useGlobalStats();
+  useEntry(1);
+  useUserPendingEntries(address as `0x${string}`);
 
   // Fetch USDT balance
   const { data: balance } = useReadContract({
@@ -51,13 +47,13 @@ const BuySlots: React.FC = () => {
   const usdtBalance = balance ? Number(balance) / 1e18 : 0;
   console.log("Formatted Balance", usdtBalance) // 9965,000000000000000000n
 
-    // Fetch User Stats
-    const { data: userStats } = useReadContract({
-      abi: khoopAbi,
-      address: khoopAddress as `0x${string}`,
-      functionName: 'getUserStats',
-      args: address ? [address] : undefined, 
-    });
+    // Fetch User Stats - Commented out as it's not currently used
+  // const { data: userStats } = useReadContract({
+  //   abi: khoopAbi,
+  //   address: khoopAddress as `0x${string}`,
+  //   functionName: 'getUserStats',
+  //   args: address ? [address] : undefined, 
+  // });
   
     async function purchaseSlot(numOfEntries: number, refferrer: string) {
       try {
@@ -196,7 +192,7 @@ const BuySlots: React.FC = () => {
       <div className="pt-2">
         <button 
           onClick={handlePurchase}
-          disabled={isPending || (referrer && !isValidReferrer)}
+          disabled={isPending || (referrer !== '' && !isValidReferrer)}
           className={`w-full rounded-full bg-gradient-to-r from-[#2D22D2] to-[#0CC3B5] px-6 py-3 text-lg font-semibold text-white shadow-[0_10px_30px_rgba(12,195,181,0.25)] transition-all hover:scale-[1.01] active:scale-[0.99] ${
             isPending ? 'opacity-70 cursor-not-allowed' : ''
           }`}

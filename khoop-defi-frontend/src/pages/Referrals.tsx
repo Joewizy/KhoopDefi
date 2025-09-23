@@ -4,7 +4,7 @@ import { FiGift, FiCopy, FiArrowUpRight, FiCheck } from 'react-icons/fi';
 import { IoTrendingUp } from 'react-icons/io5';
 import { BsPeople, BsExclamationCircle } from 'react-icons/bs';
 import { IoIosPeople } from 'react-icons/io';
-import { useUserDetails, useGlobalStats } from '../constants/function';
+import { useUserDetails } from '../constants/function';
 import { useAccount } from 'wagmi';
 import { formatNumber } from '../constants/utils';
 
@@ -17,8 +17,8 @@ const recentReferrals = [
 
 const Referrals = () => {
   const { address } = useAccount();
-  const { stats, isLoading: globalLoading, isError: globalError } = useGlobalStats();
-  const { user, isLoading: userLoading, isError: userError } = useUserDetails(address as `0x${string}`);
+ // const { stats, isLoading: globalLoading, isError: globalError } = useGlobalStats();
+  const { user } = useUserDetails(address as `0x${string}`);
   const [copied, setCopied] = useState(false);
   const handleCopy = async (text: string) => {
     try {
@@ -79,7 +79,7 @@ const Referrals = () => {
             <div className="flex-grow rounded-lg bg-[#211F46] p-3 text-gray-300 overflow-x-auto whitespace-nowrap">{referralUrl}</div>
             <div className="flex shrink-0 items-center gap-3">
               <button
-                onClick={() => handleCopy(referralUrl)}
+                onClick={() => handleCopy(referralUrl as `0x${string}`)}
                 className="rounded-md border border-white/10 bg-white/5 p-2 text-gray-300 hover:bg-white/10"
                 aria-label="Copy link"
               >

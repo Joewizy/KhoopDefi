@@ -22,8 +22,12 @@ export function formatTimestamp(timestamp: number): string {
  * @param decimals Number of decimals (default 18 for USDT/ERC20)
  * @returns Formatted string
  */
-export function formatUSDT(value: bigint | string, decimals = 18): string {
-  return Number(formatUnits(value, decimals)).toLocaleString(undefined, {
+export function formatUSDT(value: bigint | string | number, decimals = 18): string {
+  const valueToFormat = typeof value === 'string' || typeof value === 'number' 
+    ? BigInt(Math.floor(Number(value))) 
+    : value;
+    
+  return Number(formatUnits(valueToFormat, decimals)).toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
