@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { FaShoppingCart } from 'react-icons/fa';
 import { BsExclamationCircle } from 'react-icons/bs';
-import { waitForTransactionReceipt } from "@wagmi/core";
+import { waitForTransactionReceipt, readContract } from "@wagmi/core";
 import { useAccount, useConfig, useReadContract, useWriteContract } from 'wagmi';
 import { useUserDetails, useGlobalStats, useEntry, useUserPendingEntries } from '../constants/function';
 import { khoopAddress, khoopAbi, usdtAbi, usdtAddress } from '../constants/abi';
@@ -23,7 +23,7 @@ const Dot: React.FC<{ color: string }> = ({ color }) => (
 
 const BuySlots: React.FC = () => {
   const config = useConfig();
-  const {isConnected, address} = useAccount();
+  const { isConnected, address } = useAccount();
   const { writeContractAsync, isPending } = useWriteContract();
   const [numSlots, setNumSlots] = useState(1);
   const [referrer, setReferrer] = useState('');
@@ -55,8 +55,52 @@ const BuySlots: React.FC = () => {
   //   args: address ? [address] : undefined, 
   // });
   
-    async function purchaseSlot(numOfEntries: number, refferrer: string) {
+    const checkAllowance = async (owner: `0x${string}`, spender: `0x${string}`, amount: bigint): Promise<boolean> => {
       try {
+        const allowance = await readContract(config, {
+          abi: usdtAbi,
+          address: usdtAddress as `0x${string}`,
+          functionName: 'allowance',
+          args: [owner, spender]
+        });
+        return BigInt(allowance?.toString() || '0') >= amount;
+      } catch (error) {
+        console.error('Error checking allowance:', error);
+        return false;
+      }
+    };
+
+    async function purchaseSlot(numOfEntries: number, refferrer: string) {
+      if (!address) {
+        alert('Please connect your wallet');
+        return;
+      }
+
+      const totalCost = BigInt(numOfEntries * 15 * 1e18); // 15 USDT per entry with 18 decimals
+
+      try {
+        // Check if we have enough allowance
+        const hasEnoughAllowance = await checkAllowance(
+          address,
+          khoopAddress as `0x${string}`,
+          totalCost
+        );
+
+        if (!hasEnoughAllowance) {
+          // Request approval
+          const approvalHash = await writeContractAsync({
+            abi: usdtAbi,
+            address: usdtAddress as `0x${string}`,
+            functionName: 'approve',
+            args: [khoopAddress as `0x${string}`, totalCost],
+          });
+
+          // Wait for approval transaction to be mined
+          await waitForTransactionReceipt(config, { hash: approvalHash });
+          alert('Approval successful! Please confirm the purchase transaction.');
+        }
+
+        // Proceed with the purchase
         const response = await writeContractAsync({
           address: khoopAddress as `0x${string}`,
           abi: khoopAbi,
