@@ -516,4 +516,22 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
 
         return pendingEntries;
     }
+
+    /**
+     * @notice Get remaining daily entries for a user
+     */
+    function getDailyLimitRemaining(address user) external view returns (uint256 remaining) {
+        User storage u = users[user];
+        uint256 dailyEntries = u.dailyEntries;
+
+        // Reset if a new day has passed (same logic as _updateAndCheckDailyLimits)
+        if (block.timestamp >= u.lastDailyReset + 1 days) {
+            dailyEntries = 0;
+        }
+
+        if (dailyEntries >= MAX_ENTRIES_PER_DAY) {
+            return 0;
+        }
+        return MAX_ENTRIES_PER_DAY - dailyEntries;
+    }
 }

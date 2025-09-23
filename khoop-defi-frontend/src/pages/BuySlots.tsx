@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { FaShoppingCart } from 'react-icons/fa';
 import { BsExclamationCircle } from 'react-icons/bs';
-import { useAccount, useReadContract } from 'wagmi';
+import { waitForTransactionReceipt } from "@wagmi/core";
+import { useAccount, useConfig, useReadContract, useWriteContract } from 'wagmi';
 import { useUserDetails, useGlobalStats, useEntry, useUserPendingEntries } from '../constants/function';
 import { khoopAddress, khoopAbi, usdtAbi, usdtAddress } from '../constants/abi';
 
@@ -21,26 +22,32 @@ const Dot: React.FC<{ color: string }> = ({ color }) => (
 );
 
 const BuySlots: React.FC = () => {
+  const config = useConfig();
   const {isConnected, address} = useAccount();
-  const { user } = useUserDetails(address as  `0x${string}`);
+  const { writeContractAsync, isPending } = useWriteContract();
+  const [numSlots, setNumSlots] = useState(1);
+
+  const { user, isLoading: userloading } = useUserDetails(address as  `0x${string}`);
   const { stats } = useGlobalStats();
   const { entry } = useEntry(1);
   const { pendingEntries } = useUserPendingEntries(address as  `0x${string}`);
   
-  console.log("formattedUserStat", user)
-  console.log("Stats", stats)
-  console.log("Entry", entry)
-  console.log("Pending entries", pendingEntries)
+  // console.log("formattedUserStat", user)
+  // console.log("Stats", stats)
+  // console.log("Entry", entry)
+  // console.log("Pending entries", pendingEntries)
 
   // Fetch USDT balance
-  const { data: balance, isLoading, error } = useReadContract({
+  const { data: balance } = useReadContract({
     abi: usdtAbi,
     address: usdtAddress as `0x${string}`,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
   });
 
-  const formattedBalance = balance ? Number(balance) / 1e18 : 0;
+  console.log("Usdt Balance", balance)
+  const usdtBalance = balance ? Number(balance) / 1e18 : 0;
+  console.log("Formatted Balance", usdtBalance) // 9965,000000000000000000n
 
     // Fetch User Stats
     const { data: userStats } = useReadContract({
@@ -50,7 +57,44 @@ const BuySlots: React.FC = () => {
       args: address ? [address] : undefined, 
     });
   
-    console.log(userStats)
+    async function purchaseSlot(numOfEntries: number, refferrer: string) {
+      try {
+        const response = await writeContractAsync({
+          address: khoopAddress as `0x${string}`,
+          abi: khoopAbi,
+          functionName: "purchaseEntries",
+          args: [BigInt(numOfEntries), refferrer],
+        });
+
+        const receipt = await waitForTransactionReceipt(config, { hash: response });
+      if (receipt.status === "success") {
+        alert("Succesfully purchased Slot")
+      }
+      } catch (error) {
+        console.log("Error purchasing slot:", purchaseSlot)
+        alert("Error purchasing slot try again")
+      }
+    }
+
+    const handlePurchase = async () => {
+      if (!isConnected || !address) {
+        alert("Please connect your wallet first");
+        return;
+      }
+  
+      if (numSlots < 1 || numSlots > 10) {
+        alert("Please select between 1-10 slots");
+        return;
+      }
+  
+      try {
+        // Using a dummy referral address for now
+        const dummyReferrer = "0x0000000000000000000000000000000000000000";
+        await purchaseSlot(numSlots, dummyReferrer);
+      } catch (error) {
+        console.error("Purchase error:", error);
+      }
+    };
 
 
   return (
@@ -80,11 +124,14 @@ const BuySlots: React.FC = () => {
           <input
             id="slots-input"
             type="number"
-            defaultValue={1}
+            value={numSlots}
             min={1}
+            max={10}
+            onChange={(e) => setNumSlots(Number(e.target.value))}
             className="w-full rounded-lg border border-white/15 bg-[#1B1840]/40 p-3 text-center outline-none placeholder:text-gray-500"
           />
-          <button className="w-full rounded-lg border border-white/15 bg-[#1B1840]/40 p-3 text-gray-200">Max (10)</button>
+          <button onClick={() => setNumSlots(10)}
+           className="w-full rounded-lg border border-white/15 bg-[#1B1840]/40 p-3 text-gray-200">Max (10)</button>
         </div>
       </div>
 
@@ -92,7 +139,7 @@ const BuySlots: React.FC = () => {
 
       <div className="mb-6 mt-6 space-y-2">
         <Row left={<span className="text-gray-300">Total Cost:</span>} right={<span className="text-lg font-semibold">$15 USDT</span>} />
-        <Row left={<span className="text-gray-300">Your USDT Balance:</span>} right={<span className="text-lg font-semibold text-green-400">$250 USDT</span>} />
+        <Row left={<span className="text-gray-300">Your USDT Balance:</span>} right={<span className="text-lg font-semibold text-green-400">${usdtBalance ?? 0} USDT</span>} />
       </div>
 
       <Divider />
@@ -116,8 +163,21 @@ const BuySlots: React.FC = () => {
       </div>
 
       <div className="pt-2">
-        <button className="w-full rounded-full bg-gradient-to-r from-[#2D22D2] to-[#0CC3B5] px-6 py-3 text-lg font-semibold text-white shadow-[0_10px_30px_rgba(12,195,181,0.25)] transition-transform hover:scale-[1.01] active:scale-[0.99]">
-          <span className="mr-2 align-middle">$</span> Purchase 1 Slot for $15 USDT
+        <button 
+          onClick={handlePurchase}
+          disabled={isPending}
+          className={`w-full rounded-full bg-gradient-to-r from-[#2D22D2] to-[#0CC3B5] px-6 py-3 text-lg font-semibold text-white shadow-[0_10px_30px_rgba(12,195,181,0.25)] transition-all hover:scale-[1.01] active:scale-[0.99] ${
+            isPending ? 'opacity-70 cursor-not-allowed' : ''
+          }`}
+        >
+          {isPending ? (
+            'Processing...'
+          ) : (
+            <>
+              <span className="mr-2 align-middle">$</span> 
+              Purchase {numSlots} {numSlots === 1 ? 'Slot' : 'Slots'} for ${numSlots * 15} USDT
+            </>
+          )}
         </button>
       </div>
     </div>
