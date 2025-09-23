@@ -92,3 +92,5 @@ export function useGlobalStats() {
   
     return { pendingEntries, isLoading, isError };
   }
+
+  

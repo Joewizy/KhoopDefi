@@ -26,6 +26,8 @@ const BuySlots: React.FC = () => {
   const {isConnected, address} = useAccount();
   const { writeContractAsync, isPending } = useWriteContract();
   const [numSlots, setNumSlots] = useState(1);
+  const [referrer, setReferrer] = useState('');
+  const [isValidReferrer, setIsValidReferrer] = useState(true);
 
   const { user, isLoading: userloading } = useUserDetails(address as  `0x${string}`);
   const { stats } = useGlobalStats();
@@ -88,14 +90,15 @@ const BuySlots: React.FC = () => {
       }
   
       try {
-        // Using a dummy referral address for now
-        const dummyReferrer = "0x0000000000000000000000000000000000000000";
-        await purchaseSlot(numSlots, dummyReferrer);
+        // Use provided referrer or zero address if not provided
+        const referrerAddress = (referrer && isValidReferrer) ? referrer : "0x0000000000000000000000000000000000000000";
+        await purchaseSlot(numSlots, referrerAddress);
       } catch (error) {
         console.error("Purchase error:", error);
       }
     };
 
+    //todo: Check if the referee has registered and if not prompt refferer not registered
 
   return (
     <div className="rounded-2xl border border-white/15 bg-gradient-to-b from-[#6B63D8]/10 to-[#1B1840]/10 p-4 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] backdrop-blur-xl md:p-6">
@@ -109,6 +112,34 @@ const BuySlots: React.FC = () => {
       )}
 
       <div className="mb-6">
+        <div className="mb-4">
+          <label htmlFor="referrer-input" className="mb-1 block text-sm text-gray-200">Referrer Address (Optional for registed)</label>
+          <input
+            id="referrer-input"
+            type="text"
+            value={referrer}
+            onChange={(e) => {
+              const value = e.target.value.trim();
+              setReferrer(value);
+              // Basic address validation (0x followed by 40 hex characters)
+              setIsValidReferrer(!value || /^0x[a-fA-F0-9]{40}$/.test(value));
+            }}
+            placeholder="0x... (leave empty if no referrer)"
+            className={`w-full rounded-lg border ${
+              referrer && !isValidReferrer ? 'border-red-500' : 'border-white/15'
+            } bg-[#1B1840]/40 p-3 text-sm outline-none placeholder:text-gray-500`}
+          />
+          {referrer && !isValidReferrer ? (
+            <p className="mt-1 text-xs text-red-400">Please enter a valid Ethereum address</p>
+          ) : (
+            <div className="mt-2 rounded-lg bg-blue-500/10 p-2.5">
+              <p className="text-xs font-medium leading-5 text-red-200">
+                <span className="font-semibold text-red-400">Important:</span> To join KhoopDeFi, new users must be referred by an existing participant. Please ensure you have a valid referrer's wallet address before proceeding.
+              </p>
+            </div>
+          )}
+        </div>
+
         <div className="mb-2 flex items-center justify-between">
           <label htmlFor="slots-input" className="text-sm text-gray-200">Number of Slots</label>
           <span className="rounded-md bg-white/10 px-2 py-0.5 text-xs text-gray-200">$15 each</span>
@@ -165,7 +196,7 @@ const BuySlots: React.FC = () => {
       <div className="pt-2">
         <button 
           onClick={handlePurchase}
-          disabled={isPending}
+          disabled={isPending || (referrer && !isValidReferrer)}
           className={`w-full rounded-full bg-gradient-to-r from-[#2D22D2] to-[#0CC3B5] px-6 py-3 text-lg font-semibold text-white shadow-[0_10px_30px_rgba(12,195,181,0.25)] transition-all hover:scale-[1.01] active:scale-[0.99] ${
             isPending ? 'opacity-70 cursor-not-allowed' : ''
           }`}

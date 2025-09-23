@@ -28,4 +28,3 @@ export interface UserStruct {
     totalSlotFillPaid: bigint;
     totalEntriesCompleted: bigint;
   }
-  

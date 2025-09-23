@@ -4,6 +4,9 @@ import { FiGift, FiCopy, FiArrowUpRight, FiCheck } from 'react-icons/fi';
 import { IoTrendingUp } from 'react-icons/io5';
 import { BsPeople, BsExclamationCircle } from 'react-icons/bs';
 import { IoIosPeople } from 'react-icons/io';
+import { useUserDetails, useGlobalStats } from '../constants/function';
+import { useAccount } from 'wagmi';
+import { formatNumber } from '../constants/utils';
 
 const recentReferrals = [
   { user: '0x1234...abcd', date: '2024-07-21', commission: '$1.00' },
@@ -13,6 +16,9 @@ const recentReferrals = [
 ];
 
 const Referrals = () => {
+  const { address } = useAccount();
+  const { stats, isLoading: globalLoading, isError: globalError } = useGlobalStats();
+  const { user, isLoading: userLoading, isError: userError } = useUserDetails(address as `0x${string}`);
   const [copied, setCopied] = useState(false);
   const handleCopy = async (text: string) => {
     try {
@@ -23,7 +29,13 @@ const Referrals = () => {
       // no-op
     }
   };
-  const referralUrl = 'https://your-dapp.com/ref/0x742d35Cc6634c0532925a3b8D0B13cBCf3e0e12e';
+  const referralUrl = address
+
+  const totalReferees = user?.totalReferrals ?? 0n;
+  const totalCommissions = totalReferees; // $1 per referee
+  const activeReferrals = totalReferees; // if you want same logic for now
+  const refferedBy = user?.refferer
+
   return (
     <div className="p-8 text-white">
       {/* Stats Cards with diagonal pink gradient borders */}
@@ -31,11 +43,11 @@ const Referrals = () => {
         {[{
           title: 'Pending', value: '$12', icon: <BsExclamationCircle size={22} className="text-red-400" />
         }, {
-          title: 'Total Commissions', value: '$25', icon: <FiGift size={22} />
+          title: 'Total Commissions', value: formatNumber(totalCommissions), icon: <FiGift size={22} />
         }, {
-          title: 'Active Referrals', value: '8', icon: <IoTrendingUp size={22} />
+          title: 'Active Referrals', value: formatNumber(activeReferrals), icon: <IoTrendingUp size={22} />
         }, {
-          title: 'Total Referrals', value: '12', icon: <IoIosPeople size={22} />
+          title: 'Total Referrals', value: formatNumber(totalReferees), icon: <IoIosPeople size={22} />
         }].map((card, idx) => (
           <div key={idx} className="rounded-2xl bg-gradient-to-br from-transparent to-[#FFD0F2] p-[1px]">
             <div className="rounded-2xl bg-[#2C2A52]/90 p-4 backdrop-blur-sm">
@@ -60,7 +72,7 @@ const Referrals = () => {
           <div className="mb-4 text-sm text-blue-300">
             You were referred by:{' '}
             <span className="inline-block rounded-full bg-gradient-to-br from-[#FE72EC00] to-[#FFD0F2] p-[1px] align-middle">
-              <span className="rounded-full bg-[#4E47B5]/50 px-3 py-1 text-[#A098F5]">0x1234...5678</span>
+              <span className="rounded-full bg-[#4E47B5]/50 px-3 py-1 text-[#A098F5]">{refferedBy}</span>
             </span>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
