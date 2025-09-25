@@ -16,7 +16,7 @@ contract TestKhoopDefi is KhoopDefi {
         address _powerCycle,
         address _usdt
     ) KhoopDefi(_coreTeam, _investors, _reserve, _buyback, _powerCycle, _usdt) {
-        // no-op
+        // more tests
     }
 
     // Exposed setters for tests only

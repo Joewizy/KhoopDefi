@@ -534,4 +534,21 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         }
         return MAX_ENTRIES_PER_DAY - dailyEntries;
     }
+    
+    /**
+     * @notice Get pending earnings for a user (from uncompleted entries)
+     */
+    function getUserPendingEarnings(address user) external view returns (uint256 pending) {
+        uint256[] memory userEntryIds = userEntries[user];
+        uint256 pendingCount = 0;
+
+        for (uint256 i = 0; i < userEntryIds.length; i++) {
+            if (!entries[userEntryIds[i]].isCompleted) {
+                pendingCount++;
+            }
+        }
+
+        return pendingCount * PROFIT_AMOUNT;
+    }
+
 }
