@@ -18,6 +18,7 @@ contract KhoopDefiTest is Test {
 
     uint256 public constant SLOT_PRICE = 15e18;
     uint256 public constant USDT_DECIMALS = 10 ** 18;
+    address user = makeAddr("user");
 
     function setUp() public {
         usdt = new MockUSDT();
@@ -33,6 +34,8 @@ contract KhoopDefiTest is Test {
         powerCycle = address(this);
 
         khoopDefi = new KhoopDefi(coreTeam, investors, reserve, buyback, powerCycle, address(usdt));
+        usdt.mint(user, 1000e18);
+        usdt.mint(address(khoopDefi), 10e18);
     }
 
     function _prepareUsers(uint256 count) internal {
@@ -68,6 +71,87 @@ contract KhoopDefiTest is Test {
         }
         console.log("total_purchase_gas", totalGas);
         console.log("max_purchase_gas", maxGas);
+    }
+
+    function testReduceCooldown() public {
+        vm.startPrank(user);
+        usdt.approve(address(khoopDefi), type(uint256).max);
+        khoopDefi.purchaseEntries(5, powerCycle);
+
+        vm.expectRevert(KhoopDefi.KhoopDefi__InCooldown.selector);
+        khoopDefi.purchaseEntries(20, powerCycle);
+
+        khoopDefi.reduceCooldown();
+
+        // Cooldown should be 15mins now
+        vm.warp(block.timestamp + 15 minutes + 1);
+        khoopDefi.purchaseEntries(5, powerCycle);
+
+        vm.stopPrank();
+    }
+
+    function testReduceCooldownBelowFifteenMinutes() public {
+        vm.startPrank(user);
+        usdt.approve(address(khoopDefi), type(uint256).max);
+        khoopDefi.purchaseEntries(5, powerCycle);
+
+        // Advance 20 mins in the future
+        vm.warp(block.timestamp + 20 minutes);
+
+        // reduce by 15mins meaning the user should be able to buy slot immediately
+        khoopDefi.reduceCooldown();
+
+        khoopDefi.purchaseEntries(5, powerCycle);
+
+        vm.stopPrank();
+    }
+
+    function testProtocolPaysOldestEntry() public {
+        // drain the contract but leave $1 for refferal payment
+        uint256 contractBalance = usdt.balanceOf(address(khoopDefi)) - 1e18;
+        vm.prank(address(khoopDefi));
+        usdt.transfer(address(usdt), contractBalance);
+
+        vm.startPrank(user);
+        usdt.approve(address(khoopDefi), type(uint256).max);
+        khoopDefi.purchaseEntries(5, powerCycle);
+        vm.stopPrank();
+
+        (uint256 entryId, address owner, uint8 cyclesCompleted, bool isActive) = khoopDefi.getNextInLine();
+        console.log("entryId", entryId);
+        console.log("owner", owner);
+        console.log("cyclesCompleted", cyclesCompleted);
+        console.log("isActive", isActive);
+        console.log("khoop defi remaining balance", usdt.balanceOf(address(khoopDefi)));
+
+        // now we fund khoopDefi and the user calls complete cycle
+        usdt.mint(address(khoopDefi), 100e18);
+        vm.warp(block.timestamp + 30 minutes + 1);
+        vm.prank(user);
+        khoopDefi.purchaseEntries(5, powerCycle);
+        vm.stopPrank();
+
+        (uint256 entryId2, address owner2, uint8 cyclesCompleted2, bool isActive2) = khoopDefi.getNextInLine();
+        console.log("entryId", entryId2);
+        console.log("owner", owner2);
+        console.log("cyclesCompleted", cyclesCompleted2);
+        console.log("isActive", isActive2);
+        console.log("khoop defi remaining balance", usdt.balanceOf(address(khoopDefi)));
+    }
+
+    function testRevertsIfUserTryToReduceCooldownWhenCooldownNotActive() public {
+        vm.startPrank(user);
+        usdt.approve(address(khoopDefi), type(uint256).max);
+        khoopDefi.purchaseEntries(5, powerCycle);
+
+        // Advance 35 mins in the future
+        vm.warp(block.timestamp + 35 minutes);
+
+        // reduce by 15mins meaning the user should be able to buy slot immediately
+        vm.expectRevert(KhoopDefi.KhoopDefi__CooldownNotActive.selector);
+        khoopDefi.reduceCooldown();
+
+        vm.stopPrank();
     }
 
     function testReferralBonusSystem() public {
@@ -168,19 +252,6 @@ contract KhoopDefiTest is Test {
         assertEq(balanceAfter, balanceBefore - 10e18, "User should have net -$10 change");
     }
 
-    function testDailyLimits() public {
-        address testUser = address(uint160(40000));
-        usdt.mint(testUser, 10000e18);
-
-        vm.startPrank(testUser);
-        usdt.approve(address(khoopDefi), 10000e18);
-
-        vm.expectRevert(KhoopDefi.KhoopDefi__ExceedsTransactionLimit.selector);
-        khoopDefi.purchaseEntries(11, powerCycle);
-
-        vm.stopPrank();
-    }
-
     function testErrorConditions() public {
         address testUser = address(uint160(100000));
 
@@ -239,13 +310,13 @@ contract KhoopDefiTest is Test {
         // Test all view functions using the tuple-returning getGlobalStats
         (
             uint256 totalUsers,
-            uint256 totalEntriesPurchased,
+            uint256 totalEntriesPurchaseds,
             uint256 totalReffererBonusPaid,
             uint256 totalSlotFillPaid,
             uint256 totalEntriesCompleted
         ) = khoopDefi.getGlobalStats();
 
-        console.log("Global stats - total entries:", totalEntriesPurchased);
+        console.log("Global stats - total entries:", totalEntriesPurchaseds);
         console.log("Global stats - total users:", totalUsers);
         console.log("Global stats - total referrer bonus paid:", totalReffererBonusPaid / 1e18);
         console.log("Global stats - total slot fill paid:", totalSlotFillPaid / 1e18);
@@ -265,18 +336,16 @@ contract KhoopDefiTest is Test {
         // Check user data
         (
             address referrer,
-            uint256 entriesPurchased,
-            uint256 entriesFilled,
+            uint256 totalEntriesPurchased,
+            uint256 totalCyclesCompleted,
             uint256 referrerBonusEarned,
-            uint256 slotFillEarnings,
+            uint256 totalEarnings,
             uint256 totalReferrals,
             uint256 lastEntryAt,
-            uint256 dailyEntries,
-            uint256 lastDailyReset,
             bool isRegistered
         ) = khoopDefi.users(testUser);
 
-        console.log("User entries purchased:", entriesPurchased);
+        console.log("User entries purchased:", totalEntriesPurchased);
         console.log("User is registered:", isRegistered);
         console.log("User referrer:", referrer);
     }

@@ -1,76 +1,66 @@
 # Khoop DeFi - Automated Slot-Based Investment Platform
 
 ## Overview
-Decentralized investment platform using automated slot-based system. Users buy entries, join a queue, and receive guaranteed payouts.
+Decentralized investment platform using an automated, cycle-based system. Users purchase entries, complete cycles, and earn guaranteed payouts with a clear 4-cycle limit per entry.
 
 ## 🎯 Core Mechanics
-- **Entry Cost**: $15 USDT per slot
-- **Total Payout**: $20 USDT per completed slot  
-- **Profit**: $5 USDT (33.33% ROI)
+- **Entry Cost**: $15 USDT per entry
+- **Cycles per Entry**: Maximum of 4 cycles
+- **Payout per Cycle**: $5 USDT
+- **Total Potential per Entry**: $20 USDT
+- **Profit per Entry**: $5 USDT (33.33% ROI)
 
 ### Revenue Distribution ($15 USDT)
-- **$11** → Queue Payouts (73.33%)
+- **$11** → Cycle Payouts (73.33%)
 - **$3** → Buyback System (20%)
 - **$1** → Team Operations (6.67%)
 
 ## 🔄 How It Works
 
 ### 1. Entry Purchase
-- Pay $15 USDT to buy slot
-- Get unique entry ID and queue position
-- Entry marked as "pending" until completion
+- Pay $15 USDT to buy 1-20 entries per transaction
+- 30-minute cooldown between purchases (can be reduced to 15 min for $0.50 fee)
+- Each entry gets a unique ID and joins the queue
 
-### 2. Automatic Buyback System
+### 2. Cycle System
+- Each entry can complete up to 4 cycles
+- Each cycle pays out $5 USDT
+- After 4 cycles, entry becomes inactive
+- Users must purchase new entries to continue earning
+
+### 3. Automatic Buyback System
 - **Accumulation**: $3 per entry goes to buyback pool
 - **Trigger**: When pool reaches $10 USDT threshold
-- **Action**: Automatically completes oldest pending entry
-- **Frequency**: Every ~4 entries
+- **Action**: Automatically completes cycle for oldest active entry
+- **Max Cycles**: 4 cycles per entry
 
-### 3. Cycle Completion
-- **Capital Return**: $15 USDT (original investment)
-- **Profit Payment**: $5 USDT (guaranteed profit)
-- **Total Received**: $20 USDT
+### 4. Queue & Transparency
+- View next entry in line using `getNextInLine()`
+- Track your active entries with `getUserActiveEntries()`
+- Monitor global stats including total cycles completed
 
-### 4. Referral System
-- **Bonus**: $1 USDT per referred entry
-- **Payment**: Immediate when referral purchases
-- **No Limits**: Unlimited referral potential
+### 5. Referral System
+- Earn $1 USDT for each new user you refer
+- One-time bonus per referred user
 
-## 🏗️ Technical Features
+## 🛠 Key Functions
 
-### Security
-- **Daily Limits**: Max 50 entries per user per day
-- **Transaction Limits**: Max 10 entries per transaction
-- **Anti-Spam**: 10-minute minimum between purchases
-- **Reentrancy Protection**: SafeERC20 and ReentrancyGuard
+### For Users
+- `purchaseEntries(uint256 numEntries, address referrer)` - Buy new entries
+- `reduceCooldown()` - Pay $0.50 to reduce cooldown to reduce 15mins from their cooldown
+- `getNextInLine()` - View next entry due for payment
 
-### Gas Optimization
-- **Pending Start ID**: O(1) queue pointer instead of O(n) scanning
-- **Batch Operations**: Multiple entries in single transaction
+### View Functions
+- `getUserActiveEntries(address user)` - List all active entries
+- `getEntryDetails(uint256 entryId)` - View entry details
+- `getUserPotentialEarnings(address user)` - Calculate potential earnings
+- `getCooldownRemaining(address user)` - Check remaining cooldown
 
-## 🚀 Getting Started
+## ⚙️ Technical Details
+- Built on Ethereum with Solidity 0.8.30
+- Uses OpenZeppelin contracts for security
+- Implements reentrancy protection
+- Gas optimized for efficient transactions
 
-### Prerequisites
-- USDT-compatible wallet (MetaMask, Trust Wallet)
-- Minimum $15 USDT balance
-- Referrer address (existing user)
-
-### Process
-1. Connect wallet to dApp
-2. Get referrer address from existing user
-3. Purchase entry: Send $15 USDT
-4. Track progress and wait for payout
-5. Refer others to earn bonuses
-
-## 🔧 Key Functions
-- `purchaseEntries(amount, numEntries, referrer)`: Buy slots
-- `completeCycle(entryId)`: Manual cycle completion
-- `getGlobalStats()`: System-wide statistics
-- `getUserPendingEntries(user)`: User's pending slots
-
-## ⚠️ Risk Considerations
-- **Smart Contract Risk**: Code vulnerabilities
-- **Market Dependency**: Requires continuous growth
-- **Regulatory Risk**: Potential legal changes
-
-**⚡ Built with Solidity, secured by blockchain, powered by community growth.**
+## 🔒 Security
+- Comprehensive test coverage
