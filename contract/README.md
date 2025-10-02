@@ -11,9 +11,10 @@ Decentralized investment platform using an automated, cycle-based system. Users 
 - **Profit per Entry**: $5 USDT (33.33% ROI)
 
 ### Revenue Distribution ($15 USDT)
-- **$11** → Cycle Payouts (73.33%)
+- **$10** → Cycle Payouts (66.67%)
 - **$3** → Buyback System (20%)
 - **$1** → Team Operations (6.67%)
+- **$1** → Referral System (6.67%)
 
 ## 🔄 How It Works
 

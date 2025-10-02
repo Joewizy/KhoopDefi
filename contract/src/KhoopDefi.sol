@@ -67,6 +67,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     uint256 private constant MAX_CYCLES_PER_ENTRY = 4; // 4 cycles max ($20 total)
     uint256 private constant MAX_ENTRIES_PER_TX = 20; // 1-20 entries per purchase
     uint256 private constant REFERRER_WELCOME_BONUS = 1e18; // $1 one-time bonus
+    uint256 private constant REFERRER_ENTRY_BONUS = 1e18; // $1 per entry
     uint256 private constant COOLDOWN_PERIOD = 30 minutes; // Standard cooldown
     uint256 private constant REDUCED_COOLDOWN = 15 minutes; // With fee
     uint256 private constant COOLDOWN_FEE = 5e17; // $0.50 fee
@@ -198,6 +199,12 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         globalStats.totalEntriesPurchased += numEntries;
         buybackAccumulated += (numEntries * BUYBACK_PER_ENTRY);
 
+        address userReferrer = users[msg.sender].referrer;
+        if (userReferrer != address(0)) {
+            uint256 totalBonus = numEntries * REFERRER_ENTRY_BONUS;
+            _payReferralBonus(userReferrer, totalBonus);
+        }
+
         // Distribute team shares
         _distributeTeamShares(numEntries);
 
@@ -271,6 +278,13 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
 
         globalStats.totalUsers++;
         emit UserRegistered(user, referrer);
+    }
+
+    function _payReferralBonus(address referrer, uint256 amount) internal {
+        users[referrer].referrerBonusEarned += amount;
+        globalStats.totalReferrerBonusPaid += amount;
+        usdt.safeTransfer(referrer, amount);
+        emit ReferrerBonusPaid(referrer, msg.sender, amount);
     }
 
     function _createEntry(address user) internal {

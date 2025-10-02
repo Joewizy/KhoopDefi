@@ -154,6 +154,43 @@ contract KhoopDefiTest is Test {
         vm.stopPrank();
     }
 
+    function testReferralBonusPerEntry() public {
+        address user1 = address(0x1001);
+        address user2 = address(0x1002);
+        uint256 numEntries = 5; 
+        uint256 reffererBonus = 1e18; // $1 per entry
+        uint256 perEntryBonus = 1e18; // $1 per entry
+        uint256 expectedBonus = numEntries * perEntryBonus + reffererBonus; // 5 * $1 = $5
+
+        // Fund user1 1000usdt
+        usdt.mint(user1, 1000e18);
+        usdt.mint(user2, 1000e18);
+
+        // Approve spending
+        vm.startPrank(user1);
+        usdt.approve(address(khoopDefi), type(uint256).max);
+
+        khoopDefi.purchaseEntries(numEntries, powerCycle);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        usdt.approve(address(khoopDefi), type(uint256).max);
+
+        uint256 reffererBalanceBefore = usdt.balanceOf(user1);
+        (,,, uint256 bonusBefore,,,,) = khoopDefi.users(user1);
+        khoopDefi.purchaseEntries(numEntries, user1);
+        vm.stopPrank();
+
+        uint256 reffererBalanceAfter = usdt.balanceOf(user1);
+        // Check user1's stats after
+        (,,, uint256 bonusAfter,,,,) = khoopDefi.users(user1);
+        console.log("Bonus after:", bonusAfter / 1e18, "USDT");
+        console.log("Bonus received:", (bonusAfter - bonusBefore) / 1e18, "USDT");
+
+        // Should be 5 USDT (1 per entry)
+        assertEq(bonusAfter - bonusBefore, expectedBonus, "Incorrect referral bonus");
+    }
+
     function testReferralBonusSystem() public {
         // Setup users
         address referrer = address(uint160(5000));
