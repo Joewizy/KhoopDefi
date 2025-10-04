@@ -2,32 +2,26 @@
 pragma solidity ^0.8.20;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title Khoop-Defi
- * @notice Sustainable slot-based system with 4-cycle cap and automated payouts
- * @dev Entry: $15, Max earnings: $20 (4 cycles × $5), Repurchase required after maxing out
+ * @notice Sustainable slot-based system with 4-cycle cap and automated payouts no admin
  */
-contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
+contract KhoopDefi is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ============ Errors ============
     error KhoopDefi__ExceedsTransactionLimit();
     error KhoopDefi__InsufficientBalance();
-    error KhoopDefi__InvalidReferrer();
-    error KhoopDefi__CycleNotComplete();
+    error KhoopDefi__ZeroReferrer();
+    error KhoopDefi__SelfReferral();
+    error KhoopDefi__UnregisteredReferrer();
     error KhoopDefi__ZeroAddress();
     error KhoopDefi__InCooldown();
-    error KhoopDefi__MustPayExactAmount();
-    error KhoopDefi__OnlyEntryOwner();
-    error KhoopDefi__EntryMaxedOut();
+    error KhoopDefi__MustPayExactAmount();  
     error KhoopDefi__CooldownNotActive();
-    error KhoopDefi__CooldownAlreadyReduced();
-    error KhoopDefi__InsufficientCooldownTime();
 
     // ============ Types ============
     struct User {
@@ -37,7 +31,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         uint256 referrerBonusEarned;
         uint256 totalEarnings;
         uint256 totalReferrals;
-        uint256 cooldownEnd; // For cooldown tracking
+        uint256 cooldownEnd;
         bool isRegistered;
     }
 
@@ -66,7 +60,6 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     uint256 private constant CYCLE_PAYOUT = 5e18; // $5 per cycle
     uint256 private constant MAX_CYCLES_PER_ENTRY = 4; // 4 cycles max ($20 total)
     uint256 private constant MAX_ENTRIES_PER_TX = 20; // 1-20 entries per purchase
-    uint256 private constant REFERRER_WELCOME_BONUS = 1e18; // $1 one-time bonus
     uint256 private constant REFERRER_ENTRY_BONUS = 1e18; // $1 per entry
     uint256 private constant COOLDOWN_PERIOD = 30 minutes; // Standard cooldown
     uint256 private constant REDUCED_COOLDOWN = 15 minutes; // With fee
@@ -88,13 +81,13 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     mapping(address => User) public users;
     mapping(uint256 => Entry) public entries;
     mapping(address => uint256[]) public userEntries;
-    mapping(address => bool) public referralBonusPaid;
+    // Mapping to track user entries and their status
 
     // ============ Global Tracking ============
     GlobalStats public globalStats;
     uint256 public nextEntryId = 1;
     uint256 public buybackAccumulated;
-    uint256 public pendingStartId = 1; // Queue pointer to next pending entry
+    uint256 public pendingStartId = 1;
     uint256 public distributedTeamShares;
 
     // ============ Events ============
@@ -112,11 +105,14 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     // ============ Modifiers ============
     modifier validReferrer(address referrer) {
         if (!users[msg.sender].isRegistered) {
-            if (referrer == address(0) || referrer == msg.sender) {
-                revert KhoopDefi__InvalidReferrer();
+            if (referrer == address(0)) {
+                revert KhoopDefi__ZeroReferrer();
+            }
+            if (referrer == msg.sender) {
+                revert KhoopDefi__SelfReferral();
             }
             if (!users[referrer].isRegistered) {
-                revert KhoopDefi__InvalidReferrer();
+                revert KhoopDefi__UnregisteredReferrer();
             }
         }
         _;
@@ -130,7 +126,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         address _buyback,
         address _powerCycle,
         address _usdt
-    ) Ownable(msg.sender) {
+    ) {
         if (_reserve == address(0) || _buyback == address(0) || _powerCycle == address(0) || _usdt == address(0)) {
             revert KhoopDefi__ZeroAddress();
         }
@@ -146,7 +142,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
         }
 
         powerCycleWallet = _powerCycle;
-        _registerUser(powerCycleWallet, address(0));
+        _registerUser(powerCycleWallet, address(0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1));
         reserveWallet = _reserve;
         buybackWallet = _buyback;
         usdt = IERC20(_usdt);
@@ -162,7 +158,6 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
     function purchaseEntries(uint256 numEntries, address referrer)
         external
         nonReentrant
-        whenNotPaused
         validReferrer(referrer)
     {
         if (numEntries == 0 || numEntries > MAX_ENTRIES_PER_TX) {
@@ -219,7 +214,7 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
      * @dev If user has >15 mins left: reduces to 15 mins from now
      * @dev If user has <=15 mins left: gives instant access
      */
-    function reduceCooldown() external nonReentrant whenNotPaused {
+    function reduceCooldown() external nonReentrant {
         User storage user = users[msg.sender];
 
         // Check if user has ever purchased
@@ -265,15 +260,6 @@ contract KhoopDefi is ReentrancyGuard, Pausable, Ownable {
 
         if (referrer != address(0)) {
             users[referrer].totalReferrals++;
-
-            // Pay one-time welcome bonus
-            if (!referralBonusPaid[user]) {
-                referralBonusPaid[user] = true;
-                users[referrer].referrerBonusEarned += REFERRER_WELCOME_BONUS;
-                globalStats.totalReferrerBonusPaid += REFERRER_WELCOME_BONUS;
-                usdt.safeTransfer(referrer, REFERRER_WELCOME_BONUS);
-                emit ReferrerBonusPaid(referrer, user, REFERRER_WELCOME_BONUS);
-            }
         }
 
         globalStats.totalUsers++;

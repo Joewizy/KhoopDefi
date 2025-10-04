@@ -158,9 +158,8 @@ contract KhoopDefiTest is Test {
         address user1 = address(0x1001);
         address user2 = address(0x1002);
         uint256 numEntries = 5; 
-        uint256 reffererBonus = 1e18; // $1 per entry
         uint256 perEntryBonus = 1e18; // $1 per entry
-        uint256 expectedBonus = numEntries * perEntryBonus + reffererBonus; // 5 * $1 = $5
+        uint256 expectedBonus = numEntries * perEntryBonus; // 5 * $1 = $5
 
         // Fund user1 1000usdt
         usdt.mint(user1, 1000e18);

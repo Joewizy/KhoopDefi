@@ -41,8 +41,7 @@ Decentralized investment platform using an automated, cycle-based system. Users 
 - Monitor global stats including total cycles completed
 
 ### 5. Referral System
-- Earn $1 USDT for each new user you refer
-- One-time bonus per referred user
+- Earn $1 USDT for slot purchase from your referrals
 
 ## 🛠 Key Functions
 
