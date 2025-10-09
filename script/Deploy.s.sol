@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity 0.8.20;
 
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/Test.sol";
@@ -28,7 +28,7 @@ contract DeployKhoopDefi is Script {
             investors[i] = investorsDynamic[i];
         }
 
-       // uint256 USDT_AMOUNT = 100e18;
+        // uint256 USDT_AMOUNT = 100e18;
 
         // Parse additional single addresses
         address reserve = abi.decode(vm.parseJson(json, ".additional.contingency"), (address));
@@ -49,8 +49,8 @@ contract DeployKhoopDefi is Script {
         // usdtToken.mint(buyback, USDT_AMOUNT);
         // usdtToken.mint(powerCycle, USDT_AMOUNT);
 
-       // console.log("Mock USDT contract", address(usdtToken));
-        address usdtToken = 0x1648C0B178EEbCb57Aa31E3C62Ee2B52bfD1A123;
+        // console.log("Mock USDT contract", address(usdtToken));
+        address usdtToken = 0x55d398326f99059fF775485246999027B3197955;
         address usdt = address(usdtToken);
 
         // Deploy with addresses from JSON/env

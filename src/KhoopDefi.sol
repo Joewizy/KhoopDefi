@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -20,8 +20,12 @@ contract KhoopDefi is ReentrancyGuard {
     error KhoopDefi__UnregisteredReferrer();
     error KhoopDefi__ZeroAddress();
     error KhoopDefi__InCooldown();
-    error KhoopDefi__MustPayExactAmount();  
+    error KhoopDefi__MustPayExactAmount();
     error KhoopDefi__CooldownNotActive();
+    error KhoopDefi__UserNotRegistered();
+    error KhoopDefi__UserAlreadyRegistered();
+    error KhoopDefi__ZeroAmount();
+    error KhoopDefi__NotDivisibleByThreshold();
 
     // ============ Types ============
     struct User {
@@ -33,6 +37,7 @@ contract KhoopDefi is ReentrancyGuard {
         uint256 totalReferrals;
         uint256 cooldownEnd;
         bool isRegistered;
+        bool isActive; // Tracks if user has purchased any slots
     }
 
     struct Entry {
@@ -67,6 +72,7 @@ contract KhoopDefi is ReentrancyGuard {
     uint256 private constant BUYBACK_PER_ENTRY = 3e18; // $3 per entry
     uint256 private constant BUYBACK_THRESHOLD = 10e18; // $10 threshold
     uint256 private constant MAX_AUTO_FILLS_PER_PURCHASE = 5;
+    uint256 private constant MAX_AUTO_FILLS_PER_TOPUP = 10;
 
     // ============ State Variables ============
     address[4] public coreTeamWallet;
@@ -81,7 +87,6 @@ contract KhoopDefi is ReentrancyGuard {
     mapping(address => User) public users;
     mapping(uint256 => Entry) public entries;
     mapping(address => uint256[]) public userEntries;
-    // Mapping to track user entries and their status
 
     // ============ Global Tracking ============
     GlobalStats public globalStats;
@@ -101,22 +106,7 @@ contract KhoopDefi is ReentrancyGuard {
     event BuybackAutoFill(uint256 indexed entryId, uint256 amount);
     event TeamSharesDistributed(uint256 totalEntries);
     event MultipleAutoFillsProcessed(uint256 count, uint256 remainingBuyback);
-
-    // ============ Modifiers ============
-    modifier validReferrer(address referrer) {
-        if (!users[msg.sender].isRegistered) {
-            if (referrer == address(0)) {
-                revert KhoopDefi__ZeroReferrer();
-            }
-            if (referrer == msg.sender) {
-                revert KhoopDefi__SelfReferral();
-            }
-            if (!users[referrer].isRegistered) {
-                revert KhoopDefi__UnregisteredReferrer();
-            }
-        }
-        _;
-    }
+    event BuybackToppedUp(address indexed user, uint256 amount, uint256 remainingBuyback);
 
     // ============ Constructor ============
     constructor(
@@ -141,25 +131,74 @@ contract KhoopDefi is ReentrancyGuard {
             investorsWallet[i] = _investors[i];
         }
 
+        // Initialize state variables
         powerCycleWallet = _powerCycle;
-        _registerUser(powerCycleWallet, address(0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1));
         reserveWallet = _reserve;
         buybackWallet = _buyback;
         usdt = IERC20(_usdt);
+
+        // Set up powerCycleWallet as a registered user with no referrer
+        users[powerCycleWallet] = User({
+            referrer: address(0),
+            totalEntriesPurchased: 0,
+            totalCyclesCompleted: 0,
+            referrerBonusEarned: 0,
+            totalEarnings: 0,
+            totalReferrals: 0,
+            cooldownEnd: 0,
+            isRegistered: true,
+            isActive: false
+        });
+        globalStats.totalUsers++;
+        emit UserRegistered(powerCycleWallet, address(0));
     }
 
     // ============ External Functions ============
 
     /**
+     * @notice Register a new user with a referrer
+     * @param user Address of the user to register
+     * @param referrer Address of the referrer (can be zero for no referrer)
+     */
+    function registerUser(address user, address referrer) external {
+        if (user == referrer) {
+            revert KhoopDefi__SelfReferral();
+        }
+        if (users[user].isRegistered) {
+            revert KhoopDefi__UserAlreadyRegistered();
+        }
+        if (referrer != address(0) && !users[referrer].isRegistered) {
+            revert KhoopDefi__UnregisteredReferrer();
+        }
+
+        users[user] = User({
+            referrer: referrer,
+            totalEntriesPurchased: 0,
+            totalCyclesCompleted: 0,
+            referrerBonusEarned: 0,
+            totalEarnings: 0,
+            totalReferrals: 0,
+            cooldownEnd: 0,
+            isRegistered: true,
+            isActive: false
+        });
+
+        if (referrer != address(0)) {
+            users[referrer].totalReferrals++;
+        }
+
+        globalStats.totalUsers++;
+        emit UserRegistered(user, referrer);
+    }
+
+    /**
      * @notice Purchase 1-20 entry slots with USDT ($15 per slot)
      * @param numEntries Number of entries to purchase (1-20)
-     * @param referrer Referrer address for commission
      */
-    function purchaseEntries(uint256 numEntries, address referrer)
-        external
-        nonReentrant
-        validReferrer(referrer)
-    {
+    function purchaseEntries(uint256 numEntries) external nonReentrant {
+        if (!users[msg.sender].isRegistered) {
+            revert KhoopDefi__UserNotRegistered();
+        }
         if (numEntries == 0 || numEntries > MAX_ENTRIES_PER_TX) {
             revert KhoopDefi__ExceedsTransactionLimit();
         }
@@ -174,11 +213,6 @@ contract KhoopDefi is ReentrancyGuard {
             revert KhoopDefi__MustPayExactAmount();
         }
 
-        // Register user if first time
-        if (!users[msg.sender].isRegistered) {
-            _registerUser(msg.sender, referrer);
-        }
-
         uint256 startId = nextEntryId;
 
         // Create entries
@@ -191,11 +225,13 @@ contract KhoopDefi is ReentrancyGuard {
         // Update stats
         users[msg.sender].totalEntriesPurchased += numEntries;
         users[msg.sender].cooldownEnd = block.timestamp + COOLDOWN_PERIOD;
+        users[msg.sender].isActive = true; // User becomes active after first purchase
         globalStats.totalEntriesPurchased += numEntries;
         buybackAccumulated += (numEntries * BUYBACK_PER_ENTRY);
 
+        // Pay referral bonus if referrer is active
         address userReferrer = users[msg.sender].referrer;
-        if (userReferrer != address(0)) {
+        if (userReferrer != address(0) && users[userReferrer].isActive) {
             uint256 totalBonus = numEntries * REFERRER_ENTRY_BONUS;
             _payReferralBonus(userReferrer, totalBonus);
         }
@@ -244,27 +280,29 @@ contract KhoopDefi is ReentrancyGuard {
         emit CooldownReduced(msg.sender, COOLDOWN_FEE);
     }
 
-    // ============ Internal Functions ============
+    /**
+     * @notice Top up the buyback pool with USDT to help fill slots
+     * @param amount The amount of USDT to deposit (must be a multiple of BUYBACK_THRESHOLD)
+     */
+    function topUpBuyback(uint256 amount) external nonReentrant {
+        if (amount == 0) revert KhoopDefi__ZeroAmount();
+        if (amount % BUYBACK_THRESHOLD != 0) revert KhoopDefi__NotDivisibleByThreshold();
 
-    function _registerUser(address user, address referrer) internal {
-        users[user] = User({
-            referrer: referrer,
-            totalEntriesPurchased: 0,
-            totalCyclesCompleted: 0,
-            referrerBonusEarned: 0,
-            totalEarnings: 0,
-            totalReferrals: 0,
-            cooldownEnd: 0,
-            isRegistered: true
-        });
+        // Transfer and update pool
+        usdt.safeTransferFrom(msg.sender, address(this), amount);
+        buybackAccumulated += amount;
 
-        if (referrer != address(0)) {
-            users[referrer].totalReferrals++;
+        // Process auto-fills (unlimited for top-ups)
+        uint256 processed = _processAutoFills(MAX_AUTO_FILLS_PER_TOPUP);
+
+        emit BuybackToppedUp(msg.sender, amount, buybackAccumulated);
+
+        if (processed > 0) {
+            emit MultipleAutoFillsProcessed(processed, buybackAccumulated);
         }
-
-        globalStats.totalUsers++;
-        emit UserRegistered(user, referrer);
     }
+
+    // ============ Internal Functions ============
 
     function _payReferralBonus(address referrer, uint256 amount) internal {
         users[referrer].referrerBonusEarned += amount;
@@ -334,20 +372,26 @@ contract KhoopDefi is ReentrancyGuard {
         emit TeamSharesDistributed(numEntries);
     }
 
-    function _processMultipleAutoFills() internal {
-        uint256 processed = 0;
+    /**
+     * @dev Internal function to process auto-fills
+     * @param maxFills Maximum number of auto-fills to process
+     * @return processed Number of auto-fills actually processed
+     */
+    function _processAutoFills(uint256 maxFills) internal returns (uint256 processed) {
+        while (buybackAccumulated >= BUYBACK_THRESHOLD && processed < maxFills) {
+            uint256 nextId = _nextPendingEntry();
+            if (nextId == 0) break; // No pending entries
 
-        // Process up to 5 auto-fills per purchase
-        while (buybackAccumulated >= BUYBACK_THRESHOLD && processed < MAX_AUTO_FILLS_PER_PURCHASE) {
-            uint256 oldestEntryId = _nextPendingEntry();
-            if (oldestEntryId == 0) break; // No pending entries
-
-            bool success = _processSingleAutoFill(oldestEntryId);
+            bool success = _processSingleAutoFill(nextId);
             if (!success) break;
 
             processed++;
         }
+        return processed;
+    }
 
+    function _processMultipleAutoFills() internal {
+        uint256 processed = _processAutoFills(MAX_AUTO_FILLS_PER_PURCHASE);
         if (processed > 0) {
             emit MultipleAutoFillsProcessed(processed, buybackAccumulated);
         }
@@ -527,7 +571,7 @@ contract KhoopDefi is ReentrancyGuard {
         view
         returns (uint256 entryId, address owner, uint8 cyclesCompleted, bool isActive)
     {
-        // Start from the current pendingStartId
+        // Start from the current pendingStartId.
         uint256 currentId = pendingStartId;
 
         // Loop through entries to find the next active one

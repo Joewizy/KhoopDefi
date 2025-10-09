@@ -4,6 +4,7 @@ out = "out"
 libs = ["lib"]
 gas_limit = "18446744073709551615"
 evm_version = "london"
+solc_version = "0.8.20"
 
 remappings = [
     "@openzeppelin/contracts=lib/openzeppelin-contracts/contracts",
@@ -14,3 +15,4 @@ fs_permissions = [
 ]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
