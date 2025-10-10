@@ -50,7 +50,8 @@ contract DeployKhoopDefi is Script {
         // usdtToken.mint(powerCycle, USDT_AMOUNT);
 
         // console.log("Mock USDT contract", address(usdtToken));
-        address usdtToken = 0x55d398326f99059fF775485246999027B3197955;
+       // address usdtTokenBaseMainnet = 0x55d398326f99059fF775485246999027B3197955;
+        address usdtToken= 0x1648C0B178EEbCb57Aa31E3C62Ee2B52bfD1A123;
         address usdt = address(usdtToken);
 
         // Deploy with addresses from JSON/env

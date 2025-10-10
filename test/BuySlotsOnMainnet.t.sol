@@ -84,7 +84,7 @@ contract BuySlotsOnMainnetTest is Test {
         console.log("Remaining USDT balance:", finalBalance / 1e18, "USDT");
 
         // Verify the purchase was successful by checking the user's entry count
-        (uint256 totalUsers, uint256 totalEntries,,,) = khoopDefi.getGlobalStats();
+        (uint256 totalUsers,, uint256 totalEntries,,,) = khoopDefi.getGlobalStats();
         console.log("Total users:", totalUsers);
         console.log("Total entries purchased:", totalEntries);
 

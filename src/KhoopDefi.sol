@@ -51,6 +51,7 @@ contract KhoopDefi is ReentrancyGuard {
 
     struct GlobalStats {
         uint256 totalUsers;
+        uint256 totalActiveUsers;
         uint256 totalEntriesPurchased;
         uint256 totalReferrerBonusPaid;
         uint256 totalPayoutsMade;
@@ -87,6 +88,7 @@ contract KhoopDefi is ReentrancyGuard {
     mapping(address => User) public users;
     mapping(uint256 => Entry) public entries;
     mapping(address => uint256[]) public userEntries;
+    mapping(address => address[]) private userReferrals;
 
     // ============ Global Tracking ============
     GlobalStats public globalStats;
@@ -99,6 +101,7 @@ contract KhoopDefi is ReentrancyGuard {
     event EntryPurchased(uint256 indexed entryId, address indexed user, address indexed referrer, uint256 amount);
     event CycleCompleted(uint256 indexed entryId, address indexed user, uint8 cycleNumber, uint256 payoutAmount);
     event EntryMaxedOut(uint256 indexed entryId, address indexed user);
+    event ReferralAdded(address indexed referrer, address indexed referred);
     event ReferrerBonusPaid(address indexed referrer, address indexed referred, uint256 amount);
     event UserRegistered(address indexed user, address indexed referrer);
     event BatchEntryPurchased(uint256 startId, uint256 endId, address indexed user, uint256 totalCost);
@@ -139,7 +142,7 @@ contract KhoopDefi is ReentrancyGuard {
 
         // Set up powerCycleWallet as a registered user with no referrer
         users[powerCycleWallet] = User({
-            referrer: address(0),
+            referrer: address(0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1),
             totalEntriesPurchased: 0,
             totalCyclesCompleted: 0,
             referrerBonusEarned: 0,
@@ -151,6 +154,21 @@ contract KhoopDefi is ReentrancyGuard {
         });
         globalStats.totalUsers++;
         emit UserRegistered(powerCycleWallet, address(0));
+
+        // Set up devWallet as a registered user with no referrer
+        users[address(0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1)] = User({
+            referrer: address(0),
+            totalEntriesPurchased: 0,
+            totalCyclesCompleted: 0,
+            referrerBonusEarned: 0,
+            totalEarnings: 0,
+            totalReferrals: 0,
+            cooldownEnd: 0,
+            isRegistered: true,
+            isActive: false
+        });
+        globalStats.totalUsers++;
+        emit UserRegistered(address(0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1), address(0));
     }
 
     // ============ External Functions ============
@@ -184,7 +202,9 @@ contract KhoopDefi is ReentrancyGuard {
         });
 
         if (referrer != address(0)) {
+            userReferrals[referrer].push(user);
             users[referrer].totalReferrals++;
+            emit ReferralAdded(referrer, user);
         }
 
         globalStats.totalUsers++;
@@ -223,9 +243,13 @@ contract KhoopDefi is ReentrancyGuard {
         usdt.safeTransferFrom(msg.sender, address(this), totalCost);
 
         // Update stats
+        if (!users[msg.sender].isActive) {
+            users[msg.sender].isActive = true;
+            globalStats.totalActiveUsers++;
+        }
         users[msg.sender].totalEntriesPurchased += numEntries;
         users[msg.sender].cooldownEnd = block.timestamp + COOLDOWN_PERIOD;
-        users[msg.sender].isActive = true; // User becomes active after first purchase
+
         globalStats.totalEntriesPurchased += numEntries;
         buybackAccumulated += (numEntries * BUYBACK_PER_ENTRY);
 
@@ -514,6 +538,7 @@ contract KhoopDefi is ReentrancyGuard {
         view
         returns (
             uint256 totalUsers,
+            uint256 totalActiveUsers,
             uint256 totalEntriesPurchased,
             uint256 totalReferrerBonusPaid,
             uint256 totalPayoutsMade,
@@ -522,6 +547,7 @@ contract KhoopDefi is ReentrancyGuard {
     {
         return (
             globalStats.totalUsers,
+            globalStats.totalActiveUsers,
             globalStats.totalEntriesPurchased,
             globalStats.totalReferrerBonusPaid,
             globalStats.totalPayoutsMade,
@@ -564,6 +590,28 @@ contract KhoopDefi is ReentrancyGuard {
         }
 
         return potential;
+    }
+
+    function getInactiveReferrals(address referrer) external view returns (address[] memory inactiveReferrals) {
+        address[] storage referrals = userReferrals[referrer];
+        uint256 totalReferrals = referrals.length;
+        address[] memory tempInactive = new address[](totalReferrals);
+        uint256 inactiveCount = 0;
+
+        for (uint256 i = 0; i < totalReferrals; i++) {
+            if (!users[referrals[i]].isActive) {
+                tempInactive[inactiveCount] = referrals[i];
+                inactiveCount++;
+            }
+        }
+
+        // Create a new array with the correct size
+        inactiveReferrals = new address[](inactiveCount);
+        for (uint256 i = 0; i < inactiveCount; i++) {
+            inactiveReferrals[i] = tempInactive[i];
+        }
+
+        return inactiveReferrals;
     }
 
     function getNextInLine()

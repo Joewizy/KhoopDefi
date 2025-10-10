@@ -318,6 +318,21 @@ contract KhoopDefiTest is Test {
         assertEq(buybackAfter, expectedBuyback, "Buyback should decrease by $10 after auto-fill");
     }
 
+    function testGetInactiveUsers() public {
+        _prepareUsers(10);
+        for (uint256 i = 0; i < 5; i++) {
+            address user = address(uint160(10000 + i));
+            vm.startPrank(user);
+            khoopDefi.purchaseEntries(1);
+            vm.stopPrank();
+        }
+
+        address[] memory inactiveUsers = khoopDefi.getInactiveReferrals(powerCycle);
+        (,,,,,uint256 totalRefferals,,,) = khoopDefi.users(powerCycle);
+        assertEq(totalRefferals, 10, "Should have 10 refferals");
+        assertEq(inactiveUsers.length, 5, "Should have 5 inactive users");
+    }
+
     function testCycleCompletion() public {
         // Test that users receive payouts when cycles complete
         address testUser = address(uint160(20000));
@@ -480,6 +495,7 @@ contract KhoopDefiTest is Test {
         // Test all view functions using the tuple-returning getGlobalStats
         (
             uint256 totalUsers,
+            uint256 totalActiveUsers,
             uint256 totalEntriesPurchaseds,
             uint256 totalReffererBonusPaid,
             uint256 totalSlotFillPaid,
