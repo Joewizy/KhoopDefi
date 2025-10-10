@@ -88,7 +88,7 @@ contract KhoopDefi is ReentrancyGuard {
     mapping(address => User) public users;
     mapping(uint256 => Entry) public entries;
     mapping(address => uint256[]) public userEntries;
-    mapping(address => address[]) private userReferrals;
+    mapping(address => address[]) public userReferrals;
 
     // ============ Global Tracking ============
     GlobalStats public globalStats;
