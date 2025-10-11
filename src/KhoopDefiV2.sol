@@ -7,15 +7,14 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 /**
  * @title Khoop-Defi
- * @notice Sustainable slot-based system with 4-cycle cap and automated payouts no admin
+ * @notice Sustainable slot-based system with 4-cycle cap and immediate payouts
  */
-contract KhoopDefi is ReentrancyGuard {
+contract KhoopDefiV2 is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ============ Errors ============
     error KhoopDefi__ExceedsTransactionLimit();
     error KhoopDefi__InsufficientBalance();
-    error KhoopDefi__ZeroReferrer();
     error KhoopDefi__SelfReferral();
     error KhoopDefi__UnregisteredReferrer();
     error KhoopDefi__ZeroAddress();
@@ -24,8 +23,8 @@ contract KhoopDefi is ReentrancyGuard {
     error KhoopDefi__CooldownNotActive();
     error KhoopDefi__UserNotRegistered();
     error KhoopDefi__UserAlreadyRegistered();
-    error KhoopDefi__ZeroAmount();
-    error KhoopDefi__NotDivisibleByThreshold();
+    error KhoopDefi__NoActiveCycles();
+    error KhoopDefi__InsufficientContractBalance();
 
     // ============ Types ============
     struct User {
@@ -59,27 +58,22 @@ contract KhoopDefi is ReentrancyGuard {
     }
 
     // ============ Constants ============
-    uint256 private constant CORE_TEAM_SHARE = 15e16;
-    uint256 private constant INVESTORS_SHARE = 2e16;
-    uint256 private constant CONTINGENCY_SHARE = 1e17;
-    uint256 private constant ENTRY_COST = 15e18;
-    uint256 private constant CYCLE_PAYOUT = 5e18;
+    uint256 private constant CORE_TEAM_SHARE = 15e16; // 0.15 USDT per entry
+    uint256 private constant INVESTORS_SHARE = 2e16; // 0.02 USDT per entry per investor
+    uint256 private constant CONTINGENCY_SHARE = 1e17; // 0.10 USDT per entry
+    uint256 private constant ENTRY_COST = 15e18; // 15 USDT
+    uint256 private constant CYCLE_PAYOUT = 5e18; // 5 USDT
     uint256 private constant MAX_CYCLES_PER_ENTRY = 4;
     uint256 private constant MAX_ENTRIES_PER_TX = 20;
-    uint256 private constant REFERRER_ENTRY_BONUS = 1e18;
+    uint256 private constant REFERRER_ENTRY_BONUS = 1e18; // 1 USDT per entry
     uint256 private constant COOLDOWN_PERIOD = 30 minutes;
     uint256 private constant REDUCED_COOLDOWN = 15 minutes;
-    uint256 private constant COOLDOWN_FEE = 5e17;
-    uint256 private constant BUYBACK_PER_ENTRY = 3e18;
-    uint256 private constant BUYBACK_THRESHOLD = 10e18;
-    uint256 private constant MAX_AUTO_FILLS_PER_PURCHASE = 5;
-    uint256 private constant MAX_AUTO_FILLS_PER_TOPUP = 10;
+    uint256 private constant COOLDOWN_FEE = 5e17; // 0.50 USDT
 
     // ============ State Variables ============
     address[4] public coreTeamWallet;
     address[15] public investorsWallet;
     address public reserveWallet;
-    address public buybackWallet;
     address public powerCycleWallet;
 
     IERC20 public immutable usdt;
@@ -93,7 +87,6 @@ contract KhoopDefi is ReentrancyGuard {
     // ============ Global Tracking ============
     GlobalStats public globalStats;
     uint256 public nextEntryId = 1;
-    uint256 public buybackAccumulated;
     uint256 public pendingStartId = 1;
     uint256 public distributedTeamShares;
 
@@ -106,21 +99,18 @@ contract KhoopDefi is ReentrancyGuard {
     event UserRegistered(address indexed user, address indexed referrer);
     event BatchEntryPurchased(uint256 startId, uint256 endId, address indexed user, uint256 totalCost);
     event CooldownReduced(address indexed user, uint256 feePaid);
-    event BuybackAutoFill(uint256 indexed entryId, uint256 amount);
     event TeamSharesDistributed(uint256 totalEntries);
-    event MultipleAutoFillsProcessed(uint256 count, uint256 remainingBuyback);
-    event BuybackToppedUp(address indexed user, uint256 amount, uint256 remainingBuyback);
+    event CyclesProcessed(uint256 count, uint256 totalPaid);
 
     // ============ Constructor ============
     constructor(
         address[4] memory _coreTeam,
         address[15] memory _investors,
         address _reserve,
-        address _buyback,
         address _powerCycle,
         address _usdt
     ) {
-        if (_reserve == address(0) || _buyback == address(0) || _powerCycle == address(0) || _usdt == address(0)) {
+        if (_reserve == address(0) || _powerCycle == address(0) || _usdt == address(0)) {
             revert KhoopDefi__ZeroAddress();
         }
 
@@ -136,11 +126,10 @@ contract KhoopDefi is ReentrancyGuard {
 
         powerCycleWallet = _powerCycle;
         reserveWallet = _reserve;
-        buybackWallet = _buyback;
         usdt = IERC20(_usdt);
 
         users[powerCycleWallet] = User({
-            referrer: address(0),
+            referrer: address(0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1),
             totalEntriesPurchased: 0,
             totalCyclesCompleted: 0,
             referrerBonusEarned: 0,
@@ -148,7 +137,7 @@ contract KhoopDefi is ReentrancyGuard {
             totalReferrals: 0,
             cooldownEnd: 0,
             isRegistered: true,
-            isActive: false
+            isActive: true
         });
         globalStats.totalUsers++;
         emit UserRegistered(powerCycleWallet, address(0));
@@ -218,12 +207,12 @@ contract KhoopDefi is ReentrancyGuard {
 
         uint256 startId = nextEntryId;
 
+        usdt.safeTransferFrom(msg.sender, address(this), totalCost);
+
         // Create entries
         for (uint256 i = 0; i < numEntries; i++) {
             _createEntry(msg.sender);
         }
-
-        usdt.safeTransferFrom(msg.sender, address(this), totalCost);
 
         // Update stats
         if (!users[msg.sender].isActive) {
@@ -232,9 +221,7 @@ contract KhoopDefi is ReentrancyGuard {
         }
         users[msg.sender].totalEntriesPurchased += numEntries;
         users[msg.sender].cooldownEnd = block.timestamp + COOLDOWN_PERIOD;
-
         globalStats.totalEntriesPurchased += numEntries;
-        buybackAccumulated += (numEntries * BUYBACK_PER_ENTRY);
 
         // Pay referral bonus if referrer is active
         address userReferrer = users[msg.sender].referrer;
@@ -246,8 +233,8 @@ contract KhoopDefi is ReentrancyGuard {
         // Distribute team shares
         _distributeTeamShares(numEntries);
 
-        // Process auto-fills
-        _processMultipleAutoFills();
+        // Process pending cycles with remaining balance
+        _processAvailableCycles();
 
         emit BatchEntryPurchased(startId, nextEntryId - 1, msg.sender, totalCost);
     }
@@ -285,27 +272,19 @@ contract KhoopDefi is ReentrancyGuard {
         }
 
         emit CooldownReduced(msg.sender, COOLDOWN_FEE);
+
+        // Process pending cycles with the cooldown fee
+        _processAvailableCycles();
     }
 
     /**
-     * @notice Top up the buyback pool with USDT to help fill slots
-     * @param amount The amount of USDT to deposit (must be a multiple of BUYBACK_THRESHOLD)
+     * @notice Manually complete pending cycles
+     * @dev Anyone can call this to process cycles using available contract balance
      */
-    function topUpBuyback(uint256 amount) external nonReentrant {
-        if (amount == 0) revert KhoopDefi__ZeroAmount();
-        if (amount % BUYBACK_THRESHOLD != 0) revert KhoopDefi__NotDivisibleByThreshold();
-
-        // Transfer and update pool
-        usdt.safeTransferFrom(msg.sender, address(this), amount);
-        buybackAccumulated += amount;
-
-        // Process auto-fills (unlimited for top-ups)
-        uint256 processed = _processAutoFills(MAX_AUTO_FILLS_PER_TOPUP);
-
-        emit BuybackToppedUp(msg.sender, amount, buybackAccumulated);
-
-        if (processed > 0) {
-            emit MultipleAutoFillsProcessed(processed, buybackAccumulated);
+    function completeCycles() external nonReentrant {
+        uint256 processed = _processAvailableCycles();
+        if (processed == 0) {
+            revert KhoopDefi__NoActiveCycles();
         }
     }
 
@@ -380,31 +359,38 @@ contract KhoopDefi is ReentrancyGuard {
     }
 
     /**
-     * @dev Internal function to process auto-fills
-     * @param maxFills Maximum number of auto-fills to process
-     * @return processed Number of auto-fills actually processed
+     * @notice Process as many cycles as possible with available contract balance
+     * @return processed Number of cycles completed
      */
-    function _processAutoFills(uint256 maxFills) internal returns (uint256 processed) {
-        while (buybackAccumulated >= BUYBACK_THRESHOLD && processed < maxFills) {
+    function _processAvailableCycles() internal returns (uint256 processed) {
+        uint256 availableBalance = usdt.balanceOf(address(this));
+        uint256 totalPaid = 0;
+
+        while (availableBalance >= CYCLE_PAYOUT) {
             uint256 nextId = _nextPendingEntry();
             if (nextId == 0) break; // No pending entries
 
-            bool success = _processSingleAutoFill(nextId);
+            bool success = _processSingleCycle(nextId);
             if (!success) break;
 
             processed++;
+            totalPaid += CYCLE_PAYOUT;
+            availableBalance -= CYCLE_PAYOUT;
         }
+
+        if (processed > 0) {
+            emit CyclesProcessed(processed, totalPaid);
+        }
+
         return processed;
     }
 
-    function _processMultipleAutoFills() internal {
-        uint256 processed = _processAutoFills(MAX_AUTO_FILLS_PER_PURCHASE);
-        if (processed > 0) {
-            emit MultipleAutoFillsProcessed(processed, buybackAccumulated);
-        }
-    }
-
-    function _processSingleAutoFill(uint256 entryId) internal returns (bool) {
+    /**
+     * @notice Process a single cycle for an entry
+     * @param entryId The entry ID to process
+     * @return success Whether the cycle was successfully completed
+     */
+    function _processSingleCycle(uint256 entryId) internal returns (bool) {
         Entry storage entry = entries[entryId];
 
         // Validate entry
@@ -426,9 +412,6 @@ contract KhoopDefi is ReentrancyGuard {
         globalStats.totalCyclesCompleted++;
         globalStats.totalPayoutsMade += CYCLE_PAYOUT;
 
-        // Consume buyback
-        buybackAccumulated -= BUYBACK_THRESHOLD;
-
         // Check if maxed out
         if (entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY) {
             entry.isActive = false;
@@ -438,10 +421,10 @@ contract KhoopDefi is ReentrancyGuard {
         // Advance queue pointer
         _advancePendingStart();
 
+        // Send payout
         usdt.safeTransfer(entry.owner, CYCLE_PAYOUT);
 
         emit CycleCompleted(entryId, entry.owner, entry.cyclesCompleted, CYCLE_PAYOUT);
-        emit BuybackAutoFill(entryId, BUYBACK_THRESHOLD);
 
         return true;
     }
@@ -454,10 +437,6 @@ contract KhoopDefi is ReentrancyGuard {
 
     function getContractBalance() external view returns (uint256) {
         return usdt.balanceOf(address(this));
-    }
-
-    function getBuybackAccumulated() external view returns (uint256) {
-        return buybackAccumulated;
     }
 
     function getQueuePosition() external view returns (uint256) {
@@ -616,5 +595,24 @@ contract KhoopDefi is ReentrancyGuard {
 
         // If no active entries found
         return (0, address(0), 0, false);
+    }
+
+    /**
+     * @notice Get the number of pending cycles that can be completed with current balance
+     */
+    function getPendingCyclesCount() external view returns (uint256 count) {
+        uint256 availableBalance = usdt.balanceOf(address(this));
+        uint256 currentId = pendingStartId;
+
+        while (availableBalance >= CYCLE_PAYOUT && currentId < nextEntryId) {
+            Entry storage entry = entries[currentId];
+            if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
+                count++;
+                availableBalance -= CYCLE_PAYOUT;
+            }
+            currentId++;
+        }
+
+        return count;
     }
 }
