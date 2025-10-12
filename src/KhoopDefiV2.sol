@@ -6,8 +6,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
- * @title Khoop-Defi
+ * @title KhoopDefi V2
  * @notice Sustainable slot-based system with 4-cycle cap and immediate payouts
+ * Made for the community by the community
  */
 contract KhoopDefiV2 is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -24,7 +25,13 @@ contract KhoopDefiV2 is ReentrancyGuard {
     error KhoopDefi__UserNotRegistered();
     error KhoopDefi__UserAlreadyRegistered();
     error KhoopDefi__NoActiveCycles();
-    error KhoopDefi__InsufficientContractBalance();
+    error KhoopDefi__WithdrawalAlreadyExecuted();
+    error KhoopDefi__InsufficientConfirmations();
+    error KhoopDefi__TimelockNotExpired();
+    error KhoopDefi__AlreadyConfirmed();
+    error KhoopDefi__NotASigner();
+    error KhoopDefi__InvalidAmount();
+    error KhoopDefi__SignersValidation();
 
     // ============ Types ============
     struct User {
@@ -57,6 +64,15 @@ contract KhoopDefiV2 is ReentrancyGuard {
         uint256 totalCyclesCompleted;
     }
 
+    struct Withdrawal {
+        address to;
+        uint256 amount;
+        uint256 unlockTime;
+        uint256 confirmations;
+        bool executed;
+        mapping(address => bool) isConfirmed;
+    }
+
     // ============ Constants ============
     uint256 private constant CORE_TEAM_SHARE = 15e16; // 0.15 USDT per entry
     uint256 private constant INVESTORS_SHARE = 2e16; // 0.02 USDT per entry per investor
@@ -69,26 +85,31 @@ contract KhoopDefiV2 is ReentrancyGuard {
     uint256 private constant COOLDOWN_PERIOD = 30 minutes;
     uint256 private constant REDUCED_COOLDOWN = 15 minutes;
     uint256 private constant COOLDOWN_FEE = 5e17; // 0.50 USDT
+    uint256 private constant TIMELOCK_DURATION = 2 days;
 
-    // ============ State Variables ============
+    // ============ Immutable State Variables ============
+    IERC20 public immutable usdt;
     address[4] public coreTeamWallet;
     address[15] public investorsWallet;
-    address public reserveWallet;
-    address public powerCycleWallet;
+    address public immutable reserveWallet;
+    address public immutable powerCycleWallet;
 
-    IERC20 public immutable usdt;
+    // ============ Mutable State Variables ============
+    address[] public signers;
+    uint256 public requiredSignatures;
 
     // ============ Mappings ============
     mapping(address => User) public users;
     mapping(uint256 => Entry) public entries;
+    mapping(address => bool) public isSigner;
     mapping(address => uint256[]) public userEntries;
     mapping(address => address[]) public userReferrals;
+    mapping(bytes32 => Withdrawal) public withdrawals;
 
     // ============ Global Tracking ============
     GlobalStats public globalStats;
     uint256 public nextEntryId = 1;
     uint256 public pendingStartId = 1;
-    uint256 public distributedTeamShares;
 
     // ============ Events ============
     event EntryPurchased(uint256 indexed entryId, address indexed user, address indexed referrer, uint256 amount);
@@ -99,8 +120,18 @@ contract KhoopDefiV2 is ReentrancyGuard {
     event UserRegistered(address indexed user, address indexed referrer);
     event BatchEntryPurchased(uint256 startId, uint256 endId, address indexed user, uint256 totalCost);
     event CooldownReduced(address indexed user, uint256 feePaid);
-    event TeamSharesDistributed(uint256 totalEntries);
+    event TeamSharesDistributed(uint256 totalEntries, uint256 totalAmount);
     event CyclesProcessed(uint256 count, uint256 totalPaid);
+    event SystemDonation(address indexed donor, uint256 amount);
+    event WithdrawalInitiated(bytes32 indexed withdrawalId, address indexed token, address indexed to, uint256 amount, uint256 unlockTime);
+    event WithdrawalConfirmed(bytes32 indexed withdrawalId, address indexed signer);
+    event WithdrawalExecuted(bytes32 indexed withdrawalId, address indexed to, uint256 amount);
+
+    // ============ Modifiers ============
+    modifier onlySigner() {
+        if (!isSigner[msg.sender]) revert KhoopDefi__NotASigner();
+        _;
+    }
 
     // ============ Constructor ============
     constructor(
@@ -108,10 +139,20 @@ contract KhoopDefiV2 is ReentrancyGuard {
         address[15] memory _investors,
         address _reserve,
         address _powerCycle,
+        address[] memory _signers,
+        uint256 _requiredSignatures,
         address _usdt
     ) {
         if (_reserve == address(0) || _powerCycle == address(0) || _usdt == address(0)) {
             revert KhoopDefi__ZeroAddress();
+        }
+        if (_signers.length == 0 || _requiredSignatures == 0 || _requiredSignatures > _signers.length) {
+            revert KhoopDefi__SignersValidation();
+        }
+
+        for (uint256 i = 0; i < _signers.length; i++) {
+            if (_signers[i] == address(0)) revert KhoopDefi__ZeroAddress();
+            isSigner[_signers[i]] = true;
         }
 
         for (uint256 i = 0; i < 4; i++) {
@@ -124,12 +165,15 @@ contract KhoopDefiV2 is ReentrancyGuard {
             investorsWallet[i] = _investors[i];
         }
 
-        powerCycleWallet = _powerCycle;
         reserveWallet = _reserve;
+        powerCycleWallet = _powerCycle;
         usdt = IERC20(_usdt);
+        signers = _signers;
+        requiredSignatures = _requiredSignatures;
 
+        // Register powerCycleWallet
         users[powerCycleWallet] = User({
-            referrer: address(0xa2791e44234Dc9C96F260aD15fdD09Fe9B597FE1),
+            referrer: address(0),
             totalEntriesPurchased: 0,
             totalCyclesCompleted: 0,
             referrerBonusEarned: 0,
@@ -140,6 +184,7 @@ contract KhoopDefiV2 is ReentrancyGuard {
             isActive: true
         });
         globalStats.totalUsers++;
+        globalStats.totalActiveUsers++;
         emit UserRegistered(powerCycleWallet, address(0));
     }
 
@@ -148,15 +193,11 @@ contract KhoopDefiV2 is ReentrancyGuard {
     /**
      * @notice Register a new user with a referrer
      * @param user Address of the user to register
-     * @param referrer Address of the referrer (can be zero for no referrer)
+     * @param referrer Address of the referrer (address(0) for no referrer)
      */
     function registerUser(address user, address referrer) external {
-        if (user == referrer) {
-            revert KhoopDefi__SelfReferral();
-        }
-        if (users[user].isRegistered) {
-            revert KhoopDefi__UserAlreadyRegistered();
-        }
+        if (user == referrer) revert KhoopDefi__SelfReferral();
+        if (users[user].isRegistered) revert KhoopDefi__UserAlreadyRegistered();
         if (referrer != address(0) && !users[referrer].isRegistered) {
             revert KhoopDefi__UnregisteredReferrer();
         }
@@ -188,25 +229,20 @@ contract KhoopDefiV2 is ReentrancyGuard {
      * @param numEntries Number of entries to purchase (1-20)
      */
     function purchaseEntries(uint256 numEntries) external nonReentrant {
-        if (!users[msg.sender].isRegistered) {
-            revert KhoopDefi__UserNotRegistered();
-        }
+        if (!users[msg.sender].isRegistered) revert KhoopDefi__UserNotRegistered();
         if (numEntries == 0 || numEntries > MAX_ENTRIES_PER_TX) {
             revert KhoopDefi__ExceedsTransactionLimit();
         }
-
-        // Check 30-minute cooldown
         if (users[msg.sender].cooldownEnd != 0 && block.timestamp < users[msg.sender].cooldownEnd) {
             revert KhoopDefi__InCooldown();
         }
 
         uint256 totalCost = ENTRY_COST * numEntries;
-        if (usdt.balanceOf(msg.sender) < totalCost) {
-            revert KhoopDefi__MustPayExactAmount();
-        }
+        if (usdt.balanceOf(msg.sender) < totalCost) revert KhoopDefi__MustPayExactAmount();
 
         uint256 startId = nextEntryId;
 
+        // Transfer funds first
         usdt.safeTransferFrom(msg.sender, address(this), totalCost);
 
         // Create entries
@@ -214,7 +250,7 @@ contract KhoopDefiV2 is ReentrancyGuard {
             _createEntry(msg.sender);
         }
 
-        // Update stats
+        // Update user stats
         if (!users[msg.sender].isActive) {
             users[msg.sender].isActive = true;
             globalStats.totalActiveUsers++;
@@ -240,40 +276,23 @@ contract KhoopDefiV2 is ReentrancyGuard {
     }
 
     /**
-     * @notice Pay $0.50 to reduce cooldown - get 15 mins or instant access
-     * @dev If user has >15 mins left: reduces to 15 mins from now
-     * @dev If user has <=15 mins left: gives instant access
+     * @notice Pay $0.50 to reduce cooldown
+     * @dev >15 mins left: reduces to 15 mins | <=15 mins left: instant access
      */
     function reduceCooldown() external nonReentrant {
         User storage user = users[msg.sender];
 
-        // Check if user has ever purchased
-        if (user.cooldownEnd == 0) {
-            revert KhoopDefi__CooldownNotActive();
-        }
-
-        // Check if still in cooldown
-        if (block.timestamp >= user.cooldownEnd) {
-            revert KhoopDefi__CooldownNotActive();
-        }
-
-        if (usdt.balanceOf(msg.sender) < COOLDOWN_FEE) {
-            revert KhoopDefi__InsufficientBalance();
-        }
+        if (user.cooldownEnd == 0) revert KhoopDefi__CooldownNotActive();
+        if (block.timestamp >= user.cooldownEnd) revert KhoopDefi__CooldownNotActive();
+        if (usdt.balanceOf(msg.sender) < COOLDOWN_FEE) revert KhoopDefi__InsufficientBalance();
 
         usdt.safeTransferFrom(msg.sender, address(this), COOLDOWN_FEE);
 
-        // Only allow if it actually reduces the cooldown
         uint256 newCooldownEnd = block.timestamp + REDUCED_COOLDOWN;
-        if (newCooldownEnd >= user.cooldownEnd) {
-            user.cooldownEnd = block.timestamp;
-        } else {
-            user.cooldownEnd = newCooldownEnd;
-        }
+        user.cooldownEnd = newCooldownEnd >= user.cooldownEnd ? block.timestamp : newCooldownEnd;
 
         emit CooldownReduced(msg.sender, COOLDOWN_FEE);
 
-        // Process pending cycles with the cooldown fee
         _processAvailableCycles();
     }
 
@@ -283,12 +302,106 @@ contract KhoopDefiV2 is ReentrancyGuard {
      */
     function completeCycles() external nonReentrant {
         uint256 processed = _processAvailableCycles();
-        if (processed == 0) {
-            revert KhoopDefi__NoActiveCycles();
+        if (processed == 0) revert KhoopDefi__NoActiveCycles();
+    }
+
+    /**
+     * @notice Donate USDT to help process pending cycles
+     * @param amount Amount of USDT to donate
+     */
+    function donateToSystem(uint256 amount) external nonReentrant {
+        if (amount == 0) revert KhoopDefi__InvalidAmount();
+        if (usdt.balanceOf(msg.sender) < amount) revert KhoopDefi__InsufficientBalance();
+
+        usdt.safeTransferFrom(msg.sender, address(this), amount);
+        emit SystemDonation(msg.sender, amount);
+
+        _processAvailableCycles();
+    }
+
+    // ============ Governance Functions ============
+
+    /**
+     * @notice Initiate a withdrawal requiring multiple signatures
+     * @param token Token address to withdraw
+     * @param to Recipient address
+     * @param amount Amount to withdraw
+     * @return withdrawalId The ID of the created withdrawal
+     */
+    function initiateWithdrawal(address token, address to, uint256 amount) 
+        external 
+        onlySigner 
+        returns (bytes32) 
+    {
+        if (to == address(0)) revert KhoopDefi__ZeroAddress();
+        if (amount == 0) revert KhoopDefi__InvalidAmount();
+
+        bytes32 withdrawalId = keccak256(
+            abi.encodePacked(token, to, amount, block.timestamp, block.prevrandao)
+        );
+
+        Withdrawal storage newWithdrawal = withdrawals[withdrawalId];
+        if (newWithdrawal.unlockTime != 0) revert KhoopDefi__WithdrawalAlreadyExecuted();
+
+        newWithdrawal.to = to;
+        newWithdrawal.amount = amount;
+        newWithdrawal.unlockTime = block.timestamp + TIMELOCK_DURATION;
+        newWithdrawal.confirmations = 1;
+        newWithdrawal.executed = false;
+        newWithdrawal.isConfirmed[msg.sender] = true;
+
+        emit WithdrawalInitiated(withdrawalId, token, to, amount, newWithdrawal.unlockTime);
+        emit WithdrawalConfirmed(withdrawalId, msg.sender);
+
+        return withdrawalId;
+    }
+
+    /**
+     * @notice Confirm a pending withdrawal
+     * @param withdrawalId ID of the withdrawal to confirm
+     */
+    function confirmWithdrawal(bytes32 withdrawalId) external onlySigner {
+        Withdrawal storage withdrawal = withdrawals[withdrawalId];
+        
+        if (withdrawal.executed) revert KhoopDefi__WithdrawalAlreadyExecuted();
+        if (withdrawal.isConfirmed[msg.sender]) revert KhoopDefi__AlreadyConfirmed();
+
+        withdrawal.isConfirmed[msg.sender] = true;
+        withdrawal.confirmations++;
+
+        emit WithdrawalConfirmed(withdrawalId, msg.sender);
+
+        // Auto-execute if conditions met
+        if (withdrawal.confirmations >= requiredSignatures && block.timestamp >= withdrawal.unlockTime) {
+            _executeWithdrawal(withdrawalId);
         }
     }
 
+    /**
+     * @notice Execute a withdrawal after timelock and required confirmations
+     * @param withdrawalId ID of the withdrawal to execute
+     */
+    function executeWithdrawal(bytes32 withdrawalId) external {
+        Withdrawal storage withdrawal = withdrawals[withdrawalId];
+        
+        if (withdrawal.executed) revert KhoopDefi__WithdrawalAlreadyExecuted();
+        if (withdrawal.confirmations < requiredSignatures) revert KhoopDefi__InsufficientConfirmations();
+        if (block.timestamp < withdrawal.unlockTime) revert KhoopDefi__TimelockNotExpired();
+
+        _executeWithdrawal(withdrawalId);
+    }
+
     // ============ Internal Functions ============
+
+    function _executeWithdrawal(bytes32 withdrawalId) internal {
+        Withdrawal storage withdrawal = withdrawals[withdrawalId];
+        
+        withdrawal.executed = true;
+
+        usdt.safeTransfer(withdrawal.to, withdrawal.amount);
+
+        emit WithdrawalExecuted(withdrawalId, withdrawal.to, withdrawal.amount);
+    }
 
     function _payReferralBonus(address referrer, uint256 amount) internal {
         users[referrer].referrerBonusEarned += amount;
@@ -320,13 +433,12 @@ contract KhoopDefiV2 is ReentrancyGuard {
         while (pendingStartId < nextEntryId) {
             Entry storage entry = entries[pendingStartId];
 
-            // Skip if inactive or maxed out
             if (!entry.isActive || entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY) {
                 unchecked {
                     pendingStartId++;
                 }
             } else {
-                break; // Found active entry
+                break;
             }
         }
     }
@@ -354,8 +466,9 @@ contract KhoopDefiV2 is ReentrancyGuard {
         }
 
         usdt.safeTransfer(reserveWallet, totalContingency);
-        distributedTeamShares += numEntries;
-        emit TeamSharesDistributed(numEntries);
+        
+        uint256 totalDistributed = (totalCorePerWallet * 4) + (totalInvestorPerWallet * 15) + totalContingency;
+        emit TeamSharesDistributed(numEntries, totalDistributed);
     }
 
     /**
@@ -368,7 +481,7 @@ contract KhoopDefiV2 is ReentrancyGuard {
 
         while (availableBalance >= CYCLE_PAYOUT) {
             uint256 nextId = _nextPendingEntry();
-            if (nextId == 0) break; // No pending entries
+            if (nextId == 0) break;
 
             bool success = _processSingleCycle(nextId);
             if (!success) break;
@@ -394,7 +507,12 @@ contract KhoopDefiV2 is ReentrancyGuard {
         Entry storage entry = entries[entryId];
 
         // Validate entry
-        if (entryId == 0 || entry.entryId == 0 || !entry.isActive || entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY) {
+        if (
+            entryId == 0 || 
+            entry.entryId == 0 || 
+            !entry.isActive || 
+            entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY
+        ) {
             return false;
         }
 
@@ -402,7 +520,7 @@ contract KhoopDefiV2 is ReentrancyGuard {
             return false;
         }
 
-        // Complete cycle
+        // Complete cycle - update state before external call
         entry.cyclesCompleted++;
         entry.lastCycleTimestamp = block.timestamp;
 
@@ -421,7 +539,7 @@ contract KhoopDefiV2 is ReentrancyGuard {
         // Advance queue pointer
         _advancePendingStart();
 
-        // Send payout
+        // Send payout (external call last)
         usdt.safeTransfer(entry.owner, CYCLE_PAYOUT);
 
         emit CycleCompleted(entryId, entry.owner, entry.cyclesCompleted, CYCLE_PAYOUT);
@@ -464,6 +582,7 @@ contract KhoopDefiV2 is ReentrancyGuard {
     {
         Entry storage entry = entries[entryId];
         require(entry.entryId != 0, "Entry does not exist");
+        
         return (
             entry.owner,
             entry.purchaseTimestamp,
@@ -554,7 +673,7 @@ contract KhoopDefiV2 is ReentrancyGuard {
         return potential;
     }
 
-    function getInactiveReferrals(address referrer) external view returns (address[] memory inactiveReferrals) {
+    function getInactiveReferrals(address referrer) external view returns (address[] memory) {
         address[] storage referrals = userReferrals[referrer];
         uint256 totalReferrals = referrals.length;
         address[] memory tempInactive = new address[](totalReferrals);
@@ -567,8 +686,7 @@ contract KhoopDefiV2 is ReentrancyGuard {
             }
         }
 
-        // Create a new array with the correct size
-        inactiveReferrals = new address[](inactiveCount);
+        address[] memory inactiveReferrals = new address[](inactiveCount);
         for (uint256 i = 0; i < inactiveCount; i++) {
             inactiveReferrals[i] = tempInactive[i];
         }
@@ -581,10 +699,8 @@ contract KhoopDefiV2 is ReentrancyGuard {
         view
         returns (uint256 entryId, address owner, uint8 cyclesCompleted, bool isActive)
     {
-        // Start from the current pendingStartId.
         uint256 currentId = pendingStartId;
 
-        // Loop through entries to find the next active one
         while (currentId < nextEntryId) {
             Entry storage entry = entries[currentId];
             if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
@@ -593,13 +709,9 @@ contract KhoopDefiV2 is ReentrancyGuard {
             currentId++;
         }
 
-        // If no active entries found
         return (0, address(0), 0, false);
     }
 
-    /**
-     * @notice Get the number of pending cycles that can be completed with current balance
-     */
     function getPendingCyclesCount() external view returns (uint256 count) {
         uint256 availableBalance = usdt.balanceOf(address(this));
         uint256 currentId = pendingStartId;
@@ -614,5 +726,42 @@ contract KhoopDefiV2 is ReentrancyGuard {
         }
 
         return count;
+    }
+
+    function getWithdrawalDetails(bytes32 withdrawalId)
+        external
+        view
+        returns (
+            address to,
+            uint256 amount,
+            uint256 unlockTime,
+            uint256 confirmations,
+            bool executed
+        )
+    {
+        Withdrawal storage withdrawal = withdrawals[withdrawalId];
+        return (
+            withdrawal.to,
+            withdrawal.amount,
+            withdrawal.unlockTime,
+            withdrawal.confirmations,
+            withdrawal.executed
+        );
+    }
+
+    function isConfirmedBySigner(bytes32 withdrawalId, address signer) 
+        external 
+        view 
+        returns (bool) 
+    {
+        return withdrawals[withdrawalId].isConfirmed[signer];
+    }
+
+    function getSigners() external view returns (address[] memory) {
+        return signers;
+    }
+
+    function getRequiredSignatures() external view returns (uint256) {
+        return requiredSignatures;
     }
 }
