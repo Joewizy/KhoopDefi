@@ -1,297 +1,500 @@
-# 🚀 Khoop DeFi V2 - Self-Sustaining Investment Protocol
+# 🚀 Khoop DeFi V2 - Entry-Based Round-Robin Protocol
 
-## 🌟 Core Concept
-Khoop DeFi V2 introduces an innovative, self-balancing system where funds flow directly to participants without unnecessary contract holdings. The protocol is designed to be gas-efficient and eliminates manual intervention.
+## 🌟 What Is This?
 
-## 💰 Fund Flow Mechanics
+Khoop DeFi V2 is a **fair distribution system** where every entry (slot) gets processed in strict order. Think of it like a queue at a bank - each person (entry) gets served one transaction (cycle) before moving to the back of the line.
 
-### 📊 Per Slot Breakdown ($15)
-| Component     | Amount | Immediate Destination    | Purpose                          |
+
+### 📊 Per Entry Breakdown ($15)
+| Component     | Amount | Destination              | Purpose                          |
 |---------------|--------|--------------------------|----------------------------------|
-| Powerline     | $10    | Queue processing        | Direct payout to cycles          |
-| Buyback Pool  | $3     | Queue processing        | Additional cycle funding         |
+| Powerline     | $10    | Cycle processing pool   | Direct payout to entry cycles    |
+| Buyback Pool  | $3     | Cycle processing pool   | Additional cycle funding         |
 | Referral      | $1     | Referrer's wallet       | Instant referral bonus           |
 | System        | $1     | System wallets          | Platform operations & team       |
 
-### 🔄 How It Works
-
-1. **Direct Flow System**
-   - No funds are held in the contract longer than necessary
-   - $13 ($10 + $3) from each slot purchase immediately processes pending cycles
-   - Eliminates the need for manual buyback processing
-   - Reduces gas costs by minimizing transactions
-
-2. **Self-Balancing Mechanism**
-   - Each slot costs $15 to purchase
-   - Pays out $20 over 4 cycles ($5 per cycle)
-   - The $5 "profit" comes from new participants
-   - System maintains equilibrium through continuous participation
-
-3. **Queue Dynamics**
-   - New entries join the end of the queue
-   - Each $15 purchase processes cycles for earlier participants
-   - Cycles are completed automatically in FIFO (First In, First Out) order
-
-### 📈 Growth & Sustainability
-
-#### Per Slot Economics
-| Metric                | Value  | Notes                               |
-|-----------------------|--------|-------------------------------------|
-| Cost to Enter         | $15    | One-time payment per slot           |
-| Total Payout          | $20    | $5 per cycle × 4 cycles             |
-| System Cut            | $1     | 6.67% of entry cost                 |
-| Referral Bonus        | $1     | 6.67% of entry cost (if active)     |
-| Available for Cycles  | $13    | Immediately processes cycles        |
-| Cycles Funded         | 2.6    | $13 ÷ $5 per cycle                  |
-
-#### Sustainability Factors
-- Requires continuous new participants for sustainability
-- Each new slot purchase completes 2.6 cycles in the queue
-- System maintains natural balance through automated processing
-- Early participants benefit from later entries
-
-## 📝 Detailed Example Scenarios
-
-### Scenario 1: Simple Flow with Bob and Alice
-
-**Initial State:**
-- Bob has 1 slot (Entry #1) with 0 cycles completed
-- Queue position: Entry #1 (Bob) is next in line
-- Bob needs 4 cycles × $5 = $20 total to complete his slot
-
-**Alice Purchases 1 Slot ($15):**
-
-1. **Payment Distribution:**
-   ```
-   Alice pays: $15
-   ├─ $10 → Available for cycles
-   ├─ $3  → Available for cycles
-   ├─ $1  → Alice's referrer (if active)
-   └─ $1  → System wallets
-   
-   Total available: $13
-   ```
-
-2. **Automatic Cycle Processing:**
-   ```
-   Available: $13
-   Cost per cycle: $5
-   
-   Cycle 1 for Bob: $5 paid ✅ (Balance: $8)
-   Cycle 2 for Bob: $5 paid ✅ (Balance: $3)
-   Cycle 3 for Bob: Cannot complete (needs $5, have $3)
-   
-   Remaining in contract: $3
-   ```
-
-3. **Final State:**
-   - Bob: 2/4 cycles completed, earned $10
-   - Alice: Entry #2 in queue, 0/4 cycles completed
-   - Contract balance: $3 (waiting for next purchase)
-NOTE: The balance is not just sitting in the contract it is because $3 cannot be used to complete Bob's slot meaning with the current logic 
-the contract balance should always be less than $3 expect being topUp manually and even if so the `completeCycles` function should be called to process the cycles.
----
-
-### Scenario 2: Multiple Participants
-
-**Initial State:**
-- Entry #1 (Bob): 0/4 cycles
-- Entry #2 (Carol): 0/4 cycles
-- Entry #3 (Dave): 0/4 cycles
-- Contract balance: $0
-
-**Transaction 1 - Alice buys 1 slot:**
-```
-Available: $13
-├─ Bob Cycle 1: $5 ✅
-├─ Bob Cycle 2: $5 ✅
-└─ Remaining: $3
-```
-Result: Bob (2/4), Carol (0/4), Dave (0/4), Alice (0/4)
-
-**Transaction 2 - Eve buys 1 slot:**
-```
-Available: $3 (previous) + $13 (new) = $16
-├─ Bob Cycle 3: $5 ✅
-├─ Bob Cycle 4: $5 ✅ [SLOT COMPLETE! Bob earned $20]
-├─ Carol Cycle 1: $5 ✅
-└─ Remaining: $1
-```
-Result: Bob (4/4 ✅), Carol (1/4), Dave (0/4), Alice (0/4), Eve (0/4)
-
-**Transaction 3 - Frank buys 1 slot:**
-```
-Available: $1 (previous) + $13 (new) = $14
-├─ Carol Cycle 2: $5 ✅
-├─ Carol Cycle 3: $5 ✅
-└─ Remaining: $4
-```
-Result: Carol (3/4), Dave (0/4), Alice (0/4), Eve (0/4), Frank (0/4)
-
-**Transaction 4 - Grace buys 1 slot:**
-```
-Available: $4 (previous) + $13 (new) = $17
-├─ Carol Cycle 4: $5 ✅ [SLOT COMPLETE! Carol earned $20]
-├─ Dave Cycle 1: $5 ✅
-├─ Dave Cycle 2: $5 ✅
-└─ Remaining: $2
-```
-Result: Carol (4/4 ✅), Dave (2/4), Alice (0/4), Eve (0/4), Frank (0/4), Grace (0/4)
+### Key Stats at a Glance
+| Item | Value |
+|------|-------|
+| Entry Cost | $15 USDT |
+| Cycle Payout | $5 USDT |
+| Total Cycles per Entry | 4 cycles |
+| Total Returns per Entry | $20 USDT |
+| Profit per Entry | $5 USDT (33.33% ROI) |
+| Queue Type | Entry-based (not user-based) |
 
 ---
 
-### Scenario 3: With Referral System
+## 💡 How It Works (Simple Explanation)
 
-**Initial State:**
-- Bob (registered, active with referrer = powerCycleWallet)
-- Alice wants to join with Bob as referrer
+### The Basic Flow
 
-**Alice Purchases 1 Slot ($15) with Bob as Referrer:**
+1. **You Buy an Entry** → Pay $15 USDT
+2. **Entry Joins Queue** → Your entry goes to the back of the line
+3. **Cycles Process Automatically** → Each entry gets 1 cycle ($5) per round
+4. **After 4 Cycles** → Your entry completes and you've earned $20 total
 
-1. **Payment Distribution:**
-   ```
-   Alice pays: $15
-   ├─ $10 → Cycle processing
-   ├─ $3  → Cycle processing
-   ├─ $1  → Bob's wallet (INSTANT referral bonus) ✅
-   └─ $1  → System wallets
-   ```
+### Where Does Your $15 Go?
 
-2. **Bob's Benefits:**
-   - Instant $1 referral bonus received
-   - Alice added to Bob's referral list
-   - Bob's referral count increases
-   - If Bob has slots in queue, they get processed faster
+```
+Your $15 Payment Breakdown:
+├─ $13 → Contract (processes cycles for entries in queue)
+├─ $1  → Your referrer (if you have one)
+└─ $1  → System wallets (operations & team)
+```
 
-3. **Queue Processing:**
-   ```
-   Available: $13
-   Processes 2 full cycles + $3 remainder
-   ```
+The $13 that goes to the contract immediately processes **~2.6 cycles** for entries waiting in the queue.
 
 ---
 
-### Scenario 4: Fast Track Example
+## 🔄 The Entry-Based Queue System
+
+### Critical Understanding: ENTRY-Level, Not USER-Level
+
+This is the most important concept to understand:
+
+**❌ WRONG:** "If Dave buys 10 entries, all 10 complete before the next person"
+
+**✅ CORRECT:** "If Dave buys 10 entries, they're spread throughout the queue. Each entry gets 1 cycle per round."
+
+### Example: How the Queue Actually Works
 
 **Initial State:**
-- Entry #1 (Bob): 3/4 cycles (needs $5 more)
-- Entry #2 (Carol): 0/4 cycles
-- Contract balance: $0
-
-**Alice Buys 1 Slot:**
 ```
-Available: $13
-├─ Bob Cycle 4: $5 ✅ [Bob COMPLETE - Total earned: $20]
-├─ Carol Cycle 1: $5 ✅
-└─ Remaining: $3
+Entry #1 (Dave) - 0/4 cycles
+Entry #2 (Jhus) - 0/4 cycles
+Contract Balance: $0
 ```
 
-**Key Insight:** Bob only needed 1 more cycle, so Alice's purchase completed Bob's slot AND started Carol's cycles!
+**Dave buys 1 entry ($15 → $13 to contract):**
+```
+Processing:
+├─ Entry #1 (Dave) gets Cycle 1 → $5 paid ✅
+├─ Entry #2 (Jhus) gets Cycle 1 → $5 paid ✅
+└─ Balance remaining: $3 (waits for more funds)
+
+New Queue:
+Entry #1 (Dave) - 1/4 cycles [$5 earned]
+Entry #2 (Jhus) - 1/4 cycles [$5 earned]
+Entry #3 (Dave) - 0/4 cycles [newly added]
+```
+
+**SteelBangez buys 10 entries ($150 → $130 to contract):**
+```
+Available: $3 + $130 = $133 (can process 26 cycles)
+
+Processing Order (strict FIFO):
+1. Entry #1 (Dave) Cycle 2 ✅
+2. Entry #2 (Jhus) Cycle 2 ✅
+3. Entry #3 (Dave) Cycle 1 ✅
+4-13. Entry #4-13 (SteelBangez) Cycle 1 ✅ each
+14. Entry #1 (Dave) Cycle 3 ✅
+15. Entry #2 (Jhus) Cycle 3 ✅
+16. Entry #3 (Dave) Cycle 2 ✅
+17-26. Entry #4-13 (SteelBangez) Cycle 2 ✅ each
+
+Balance remaining: $3
+```
+
+**Key Insights:**
+- ✅ SteelBangez's 10 entries are treated individually (not as a batch)
+- ✅ Dave's entries are interspersed with everyone else's
+- ✅ Processing wraps around: after the last entry, goes back to first
+- ✅ Everyone progresses fairly, one cycle at a time
 
 ---
 
-## 🔢 Mathematical Breakdown
+## 💰 Understanding Contract Balance
 
-### Individual Slot ROI
+### The $5 Threshold Rule
+
+**The queue only moves when the contract has at least $5 (one cycle payment).**
+
+```
+Balance Scenarios:
+├─ $4 or less → ⚠️ Queue FROZEN (need $5 to process)
+├─ $5-9 → ✅ 1 cycle can process
+├─ $10-14 → ✅ 2 cycles can process
+├─ $13 → ✅ 2 cycles + $3 remainder (typical)
+└─ $133 → ✅ 26 cycles + $3 remainder
+```
+
+### Why Remainders Happen
+
+Every entry purchase adds $13, which equals 2.6 cycles. Since you can't pay fractional cycles, the remainder stays in the contract.
+
+**Typical Pattern:**
+```
+Purchase 1: $13 → 2 cycles paid, $3 left
+Purchase 2: $16 total → 3 cycles paid, $1 left
+Purchase 3: $14 total → 2 cycles paid, $4 left
+```
+
+**Average: Each purchase processes ~2.6 cycles**
+
+---
+
+## 🎯 Three Ways to Move the Queue
+
+### 1️⃣ Purchase Entries (Primary Method)
+
+**Function:** `purchaseEntries(numEntries)`
+
+- Pay $15 per entry
+- Automatically adds $13 per entry to contract
+- Automatically processes cycles
+- Your new entries join the back of the queue
+
+**Example:** Buy 5 entries → $75 total → $65 processes ~13 cycles → 5 new entries added
+
+---
+
+### 2️⃣ Donate to System (Community Boost)
+
+**Function:** `donateToSystem(amount)`
+
+This is **powerful** - anyone can donate to help process the queue faster!
+
+**Why Donate?**
+- ✅ Speed up your own entries' completion
+- ✅ Help the community during slow periods
+- ✅ 100% of donation goes to processing cycles
+- ✅ No new entries added (pure acceleration)
+
+**Example:**
+```
+Current state: Balance $3, queue stuck
+You donate: $50
+Result: Balance becomes $53, processes 10 cycles immediately
+Your entries: Move closer to completion
+```
+
+**Strategic Donation Calculator:**
+```
+Want to process exactly 20 cycles?
+Formula: (20 cycles × $5) - current balance
+
+If balance is $3:
+Donate: (20 × $5) - $3 = $97
+Result: Exactly 20 cycles process
+```
+
+---
+
+### 3️⃣ Complete Cycles (Manual Trigger)
+
+**Function:** `completeCycles()`
+
+Anyone can call this to manually process available cycles (you just pay gas).
+
+**When to Use:**
+- Contract has balance but cycles haven't auto-processed
+- After donations accumulate
+- You want to help move the queue
+
+**Example:**
+```
+Situation: Contract has $47 from donations
+Action: Call completeCycles()
+Result: 9 cycles process ($45 paid out), $2 remains
+Cost: Just gas fees (~$1-5 depending on network)
+```
+
+---
+
+## 📊 Real-World Scenarios
+
+### Scenario 1: New User Experience
+
+**You're new and buy 1 entry:**
+```
+Cost: $15
+Your position: Back of queue (let's say entry #50)
+Entries ahead: 49 entries × ~2.5 cycles avg = ~123 cycles needed
+Fund needed: 123 × $5 = $615
+Time to complete: Depends on purchase rate
+
+At 20 purchases/day:
+- $260/day added to contract
+- ~52 cycles/day processed
+- Your entry completes in ~3 days
+```
+
+---
+
+### Scenario 2: Multi-Entry Strategy
+
+**You buy 10 entries at once:**
+```
+Investment: $150
+Funds contract: $130 (processes 26 cycles for others)
+Your entries: #51-60 in queue
+Returns when complete: $200 (10 × $20)
+Net profit: $50
+
+How long?
+- Your entries are spread through queue
+- Each needs 4 cycles
+- Complete as queue moves (not all at once)
+- Estimated: 1-2 weeks at normal activity
+```
+
+---
+
+### Scenario 3: Strategic Donation
+
+**You have 20 entries stuck in slow queue:**
+```
+Problem: Low activity, balance at $3
+Your entries: Positions #30-49
+Cycles needed: ~100 to reach completion
+
+Solution 1: Wait for purchases
+- Uncertain timeline
+- Depends on others
+
+Solution 2: Donate $250
+- Processes 50 cycles immediately
+- Moves entire queue forward
+- Your entries advance significantly
+- Shows commitment to ecosystem
+
+Result: Faster completion + community goodwill
+```
+
+---
+
+## 🔢 Important Math
+
+### Per Entry Economics
 ```
 Investment: $15
 Returns: $20 (over 4 cycles)
-Profit: $5 (33.33% return)
-Time to complete: Depends on queue position and new entries
+Profit: $5 per entry
+ROI: 33.33%
+Contribution to queue: $13 (processes 2.6 cycles)
 ```
 
-### System Balance Equation
+### System Sustainability
 ```
-For system equilibrium:
-New Entries × $13 = Pending Cycles × $5
+Each entry needs: 4 cycles × $5 = $20
+Each entry funds: 2.6 cycles × $5 = $13
+Deficit per entry: $7
 
-Example for 10 cycles pending:
-10 cycles × $5 = $50 needed
-$50 ÷ $13 per entry = ~3.85 entries needed
-```
-
-### Cycle Completion Rate
-```
-Each purchase completes: 2.6 cycles
-To complete your 4 cycles: Need ~1.54 purchases after you
-To complete 10 slots (40 cycles): Need ~15.4 purchases
+This means:
+- System needs continuous new entries
+- OR community donations to fill gap
+- Early entries benefit from later entries (FIFO)
 ```
 
-## ⚙️ Technical Implementation
-
-### Automatic Processing
-- Every `purchaseEntries()` call triggers `_processAvailableCycles()`
-- Every `reduceCooldown()` call triggers cycle processing
-- Manual `completeCycles()` available for anyone to call
-- `donateToSystem()` allows donations to help process queue
-
-### Gas Optimization
-- No manual buyback processing needed
-- Minimal contract storage for fund holding
-- Efficient queue management with O(1) amortized complexity
-- Single transaction processes multiple cycles
-
-### Security Features
-- Multi-signature controls for emergency withdrawals
-- 2-day timelock on governance actions
-- Transparent on-chain tracking
-- ReentrancyGuard on all state-changing functions
-- No admin withdrawal functions (all automated)
-
-## 📊 System Health Metrics
-
-### Real-Time Indicators
-- **Current Queue Length**: Total active entries waiting
-- **Pending Cycles**: Total cycles waiting to be completed
-- **Contract Balance**: Available funds for processing
-- **Estimated Cycles Processable**: Balance ÷ $5
-- **Total Slots Active**: Entries not yet completed
-- **Total Payouts**: Sum of all cycle payments made
-
-### Health Check Formula
+### Time Estimation Formula
 ```
-Healthy System Ratio = (New Entries per Day × 2.6) ≥ (Pending Cycles)
+Your Position: Entry #P
+Queue Size: Q entries
+Average Cycles Remaining: ~2.5 per entry
+
+Cycles to Process: P × 2.5
+Daily Purchase Rate: D purchases/day
+Daily Cycles Processed: D × 2.6
+
+Days to Completion: (P × 2.5) ÷ (D × 2.6)
 
 Example:
-If 10 entries/day: 10 × 2.6 = 26 cycles processed
-Queue grows if: New cycles/day > 26
+Position #50, 30 purchases/day
+= (50 × 2.5) ÷ (30 × 2.6)
+= 125 ÷ 78
+≈ 1.6 days
 ```
-
-## ⚠️ Important Considerations
-
-### For Participants
-- ✅ System relies on continuous participation
-- ✅ Early participants benefit from later entries (FIFO queue)
-- ✅ All payouts are automated and trustless
-- ✅ No funds are locked unnecessarily
-- ⚠️ Position in queue determines completion speed
-- ⚠️ ROI depends on new participant flow
-
-### System Dynamics
-- **Best Case**: Steady new entries → Fast cycle completion
-- **Normal Case**: Moderate entries → Predictable timeline
-- **Slow Case**: Few entries → Extended wait times
-- **Risk**: Requires ongoing participation to maintain flow
-
-## 🎯 Success Factors
-
-1. **Viral Growth**: Referral system incentivizes promotion
-2. **Transparency**: All transactions visible on-chain
-3. **Automation**: No human intervention needed
-4. **Fairness**: FIFO queue ensures order
-5. **Efficiency**: Direct flow minimizes costs
-
-## 📞 Emergency Functions
-
-### For Governance (Multi-sig)
-- `initiateWithdrawal()`: Start withdrawal process
-- `confirmWithdrawal()`: Confirm pending withdrawal
-- `executeWithdrawal()`: Execute after timelock
-
-### For Everyone
-- `completeCycles()`: Manually trigger cycle processing
-- `donateToSystem()`: Add funds to help process queue
 
 ---
 
-**Note**: This is a participation-based system. Like all such systems, sustainability depends on continued new entries. Early participants have a queue advantage, but all participants follow the same transparent rules enforced by smart contracts.
+## 📱 How to Monitor Your Progress
+
+### Key Functions to Check
+
+**Check Contract Balance:**
+- Function: `getContractBalance()`
+- Shows: Current USDT available for processing
+
+**Check Your Entries:**
+- Function: `getUserActiveEntries(yourAddress)`
+- Shows: All your entries still in queue
+
+**Check Queue Status:**
+- Function: `getQueueLength()`
+- Shows: Total active entries waiting
+
+**Check Cycles Pending:**
+- Function: `getPendingCyclesCount()`
+- Shows: How many cycles can process with current balance
+
+**Check Next in Line:**
+- Function: `getNextInLine()`
+- Shows: Which entry processes next
+
+---
+
+## 💡 Pro Tips & Strategies
+
+### For Maximizing Returns
+1. **Early Entry Advantage**: Buy entries when queue is small
+2. **Multiple Entries**: Spread investment across entries for diversification
+3. **Referrals**: Earn $1 instant bonus per referred entry
+4. **Active Referrers**: Get bonuses continuously
+
+### For Fast Completion
+1. **Strategic Donations**: If queue is slow, donate to accelerate
+2. **Monitor Balance**: If balance < $5, consider small donation
+3. **Community Coordination**: Organize group purchases
+4. **Manual Triggers**: Call `completeCycles()` if balance sitting idle
+
+### For Community Health
+1. **Refer Others**: Grow the participant base
+2. **Donate During Slow Times**: Keep queue moving
+3. **Share Progress**: Social media updates build momentum
+4. **Educate New Users**: Help them understand the system
+
+---
+
+## ⚠️ Important Things to Know
+
+### System Requirements
+- ✅ Requires continuous new entries to maintain flow
+- ✅ Early entries have queue advantage (FIFO)
+- ✅ All rules enforced by smart contracts (no human control)
+- ⚠️ Completion time varies with participation rate
+- ⚠️ Not a guaranteed timeframe investment
+- ⚠️ Standard blockchain risks apply
+
+### What Happens When Queue Slows?
+```
+Slow Period Scenario:
+├─ Contract balance drops below $5
+├─ Queue freezes (no cycles process)
+├─ Solutions:
+│   ├─ Wait for next purchase
+│   ├─ Community donations
+│   ├─ Governance intervention (rare)
+│   └─ Marketing push for new users
+└─ Queue resumes when balance ≥ $5
+```
+
+### The Difference: Entry vs. User
+
+**Entry-Based (This System):**
+- Each entry = 1 slot in queue
+- Buy 10 entries = 10 slots spread through queue
+- Fair for everyone
+
+**User-Based (Other Systems):**
+- Each user = 1 slot in queue
+- Buy 10 entries = still 1 slot (completes all 10 together)
+- Benefits single-entry buyers
+
+---
+
+## 🎓 Quick Reference
+
+### Key Numbers
+- Entry Cost: **$15**
+- Cycle Payout: **$5**
+- Cycles per Entry: **4**
+- Total Returns: **$20**
+- Profit: **$5 (33.33%)**
+- Referral Bonus: **$1 instant**
+
+### Key Functions
+- `purchaseEntries(n)` - Buy entries (costs $15n)
+- `donateToSystem(amount)` - Donate to help queue
+- `completeCycles()` - Manual trigger (free, just gas)
+- `reduceCooldown()` - Pay $0.50 to skip cooldown
+
+### Queue Rules
+1. One cycle per entry per round
+2. Strict FIFO order (no skipping)
+3. Completed entries removed from queue
+4. Balance must be ≥ $5 to process
+5. Remainders accumulate until sufficient
+
+### Success Formula
+```
+Healthy System = 
+  (New Entries/Day × 2.6) + Donations ≥ (Cycles Needed/Day)
+```
+
+---
+
+## 🔐 Security & Governance
+
+### Safety Features
+- Multi-signature controls for withdrawals
+- 2-day timelock on governance actions
+- ReentrancyGuard on all state changes
+- Immutable wallet addresses
+- No admin minting capabilities
+- Fully transparent on-chain
+
+### Emergency Functions
+Only for multi-sig governance:
+- `initiateWithdrawal()` - Start withdrawal process
+- `confirmWithdrawal()` - Confirm pending withdrawal
+- `executeWithdrawal()` - Execute after timelock
+
+---
+
+##  Getting Started
+
+### Step 1: Register
+Register your address with valid referrer address before purchasing entries.
+
+### Step 2: Purchase
+Buy entries maximum of 20 entries per transaction. with 30 minutes cooldown.
+
+### Step 3: Monitor
+Check your entries with `getUserActiveEntries(yourAddress)`. would be display in the website
+
+### Step 4: Earn
+Receive $5 automatically each time your entries complete a cycle.
+
+### Step 5: Refer (Optional)
+Share your referral link - earn $1 per entry bought referred as long as you have active slots.
+
+---
+
+## ❓ FAQ
+
+**Q: When do I get paid?**
+A: Automatically when your entry completes a cycle. You'll receive $5 per cycle (4 total).
+
+**Q: Can I withdraw early?**
+A: No, entries must complete all 4 cycles. No early withdrawal and it is automatic payout.
+
+**Q: What if queue stops?**
+A: Wait for new entries, donate to help, or call `completeCycles()` if balance available.
+
+**Q: Do my entries complete together?**
+A: No, they're spread through the queue and complete individually.
+
+**Q: Is this guaranteed profit?**
+A: No guarantees. Depends on continued participation. Early entries have advantage.
+
+**Q: Can I buy more entries later?**
+A: Yes, anytime. Subject to cooldown period (30 min, or pay $0.50 to reduce to 15 min).
+
+**Q: What's the best strategy?**
+A: Early entry + refer others + strategic donations during slow times.
+
+---
+
+**The Golden Rules:**
+1. One cycle per entry per round
+2. Queue moves only when balance ≥ $5
+3. Entry-based (not user-based)
+4. FIFO order (no skipping)
+5. Community participation keeps it flowing
+
+---
+
+**Documentation Version:** 2.1  
+**Contract:** KhoopDefi V2  
+**Last Updated:** October 2025

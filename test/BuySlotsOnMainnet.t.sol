@@ -21,6 +21,11 @@ contract BuySlotsOnMainnetTest is Test {
     address public reserveWallet;
     address public buybackWallet;
     address public powerCycleWallet;
+    address[] public signers;
+    uint256 public requiredSignatures = 2;
+
+    address obed = makeAddr("obed");
+    address sam = makeAddr("sam");
 
     function setUp() public {
         // Fork BSC Mainnet
@@ -35,12 +40,17 @@ contract BuySlotsOnMainnetTest is Test {
         for (uint256 i = 0; i < 15; i++) {
             investors[i] = address(this);
         }
+        signers = coreTeam;
         reserveWallet = address(this);
         buybackWallet = address(this);
         powerCycleWallet = address(this);
 
+        signers.push(obed);
+        signers.push(sam);
         // Deploy KhoopDefi contract
-        khoopDefi = new KhoopDefi(coreTeam, investors, reserveWallet, buybackWallet, powerCycleWallet, address(USDT));
+        khoopDefi = new KhoopDefi(
+            coreTeam, investors, reserveWallet, powerCycleWallet, signers, requiredSignatures, address(USDT)
+        );
 
         // Impersonate the test wallet for the test
         vm.startPrank(TEST_WALLET);
@@ -93,9 +103,8 @@ contract BuySlotsOnMainnetTest is Test {
         console.log("User's total entries:", entriesPurchased);
 
         // Log the last few entry details (up to 5 to avoid too much output)
-        uint256 entriesToShow = entriesPurchased > 5 ? 5 : entriesPurchased;
-        for (uint256 i = 0; i < entriesToShow; i++) {
-            uint256 entryId = totalEntries - i;
+        for (uint256 i = 0; i < 5; i++) {
+            uint256 entryId = i + 1;
             (address owner,, uint8 cyclesCompleted,, bool isActive,) = khoopDefi.getEntryDetails(entryId);
             console.log("Entry", entryId, ":");
             console.log("  Owner:", owner);
@@ -112,17 +121,32 @@ contract BuySlotsOnMainnetTest is Test {
         vm.startPrank(richKid);
         deal(address(USDT), richKid, amount);
         USDT.approve(address(khoopDefi), amount);
-        khoopDefi.topUpBuyback(amount);
+        khoopDefi.donateToSystem(amount);
         vm.stopPrank();
 
         // Check entry 1
+        console.log("Code dey reach here so?");
         (,, uint8 cyclesCompleted1,, bool isActive1,) = khoopDefi.getEntryDetails(1);
+        console.log("Cycles completed for entry 1", cyclesCompleted1);
+        console.log("Is active for entry 1", isActive1);
         assertEq(cyclesCompleted1, 4, "Entry 1 should have 4 cycles completed");
         assertEq(isActive1, false, "Entry 1 should be inactive");
 
         // Check entry 2
         (,, uint8 cyclesCompleted2,, bool isActive2,) = khoopDefi.getEntryDetails(2);
+        console.log("Cycles completed for entry 2", cyclesCompleted2);
+        console.log("Is active for entry 2", isActive2);
         assertEq(cyclesCompleted2, 4, "Entry 2 should have 4 cycles completed");
         assertEq(isActive2, false, "Entry 2 should be inactive");
+
+        // Log the last few entry details (up to 5 to avoid too much output)
+        for (uint256 i = 5; i < 10; i++) {
+            uint256 entryId = i + 1;
+            (address owner,, uint8 cyclesCompleted,, bool isActive,) = khoopDefi.getEntryDetails(entryId);
+            console.log("Entry", entryId, ":");
+            console.log("  Owner:", owner);
+            console.log("  Cycles completed:", uint256(cyclesCompleted));
+            console.log("  Is active:", isActive);
+        }
     }
 }
