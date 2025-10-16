@@ -97,7 +97,6 @@ contract KhoopDefi is ReentrancyGuard {
     // ============ Events ============
     event EntryPurchased(uint256 indexed entryId, address indexed user, address indexed referrer, uint256 amount);
     event CycleCompleted(uint256 indexed entryId, address indexed user, uint8 cycleNumber, uint256 payoutAmount);
-    event RoundCompleted(address indexed user, uint256 roundNumber, uint256 slotsCompleted, uint256 totalPaid);
     event EntryMaxedOut(uint256 indexed entryId, address indexed user);
     event ReferralAdded(address indexed referrer, address indexed referred);
     event ReferrerBonusPaid(address indexed referrer, address indexed referred, uint256 amount);
@@ -107,8 +106,6 @@ contract KhoopDefi is ReentrancyGuard {
     event TeamSharesDistributed(uint256 totalEntries, uint256 totalAmount);
     event CyclesProcessed(uint256 count, uint256 totalPaid);
     event SystemDonation(address indexed donor, uint256 amount);
-    event UserAddedToQueue(address indexed user);
-    event UserRemovedFromQueue(address indexed user);
 
     // ============ Constructor ============
     constructor(
