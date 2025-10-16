@@ -35,12 +35,11 @@ contract DeployKhoopDefi is Script {
         address powerCycle = abi.decode(vm.parseJson(json, ".additional.PowerLine"), (address));
 
         // address usdtToken = 0x55d398326f99059fF775485246999027B3197955; bscMainnet
-        // address usdtToken = 0x1648C0B178EEbCb57Aa31E3C62Ee2B52bfD1A123; // bscTestnet
-        // IERC20 usdt = IERC20(usdtToken);
+        address usdtToken = 0x1648C0B178EEbCb57Aa31E3C62Ee2B52bfD1A123; // bscTestnet
 
         // Deploy with addresses from JSON/env
         KhoopDefi khoopDefi =
-            new KhoopDefi(coreTeam, investors, reserve, powerCycle, address(0x1648C0B178EEbCb57Aa31E3C62Ee2B52bfD1A123));
+            new KhoopDefi(coreTeam, investors, reserve, powerCycle, usdtToken);
 
         vm.stopBroadcast();
         return khoopDefi;

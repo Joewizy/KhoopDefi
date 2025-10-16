@@ -5,12 +5,10 @@ import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/Test.sol";
 import {KhoopDefi} from "../src/KhoopDefi.sol";
 import {MockUSDT} from "./mocks/MockUSDT.sol";
-import {KhoopDefiV2} from "../src/v1.sol";
 
 contract KhoopDefiTest is Test {
-    // KhoopDefi public khoopDefi;
+    KhoopDefi public khoopDefi;
     MockUSDT public usdt;
-    KhoopDefiV2 public khoopDefi;
 
     address[4] coreTeam;
     address[15] investors;
@@ -39,7 +37,7 @@ contract KhoopDefiTest is Test {
         buyback = address(this);
         powerCycle = address(this);
 
-        khoopDefi = new KhoopDefiV2(coreTeam, investors, reserve, powerCycle, address(usdt));
+        khoopDefi = new KhoopDefi(coreTeam, investors, reserve, powerCycle, address(usdt));
     }
 
     function testPurchaseEntries() public {
@@ -54,7 +52,7 @@ contract KhoopDefiTest is Test {
         _registerUser(test1);
         _registerUser(test2);
         _registerUser(test3);
-       // usdt.mint(address(khoopDefi), 100e18);
+        // usdt.mint(address(khoopDefi), 100e18);
 
         vm.prank(user);
         khoopDefi.purchaseEntries(1);
@@ -134,7 +132,8 @@ contract KhoopDefiTest is Test {
         console.log("After test1 bought 10 entries:");
         _getUserActiveEntriesDetails(user);
         console.log("Test 1 entry details");
-        (address owner,, uint8 cyclesCompleted, uint256 lastCycleTimestamp, bool isActive, uint8 cyclesRemaining) = khoopDefi.getEntryDetails(20);
+        (address owner,, uint8 cyclesCompleted, uint256 lastCycleTimestamp, bool isActive, uint8 cyclesRemaining) =
+            khoopDefi.getEntryDetails(20);
         console.log("Test 1 last entry should get at least one cycle");
         console.log("Cycles completed: ", cyclesCompleted);
         console.log("Last cycle timestamp: ", lastCycleTimestamp);
@@ -178,7 +177,14 @@ contract KhoopDefiTest is Test {
         console.log("Test2 Final Active Entries: ", test2ActiveEntriesFinal.length);
         console.log("Test3 Final Active Entries: ", test3ActiveEntriesFinal.length);
         console.log("Contract balance after test3 purchase 10 slots: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
-        (uint256 totalUsers, uint256 totalActiveUsers, uint256 totalEntriesPurchased, uint256 totalReferrerBonusPaid, uint256 totalPayoutsMade, uint256 totalCyclesCompleted) = khoopDefi.getGlobalStats();
+        (
+            uint256 totalUsers,
+            uint256 totalActiveUsers,
+            uint256 totalEntriesPurchased,
+            uint256 totalReferrerBonusPaid,
+            uint256 totalPayoutsMade,
+            uint256 totalCyclesCompleted
+        ) = khoopDefi.getGlobalStats();
         console.log("Total users: ", totalUsers);
         console.log("Total active users: ", totalActiveUsers);
         console.log("Total entries purchased: ", totalEntriesPurchased);
@@ -186,6 +192,49 @@ contract KhoopDefiTest is Test {
         console.log("Total payouts made: ", totalPayoutsMade / 1e18);
         console.log("Total cycles completed: ", totalCyclesCompleted);
         console.log("Total money team accumulated: ", khoopDefi.getTeamAccumulatedBalance() / 1e18);
+        (
+            uint256 entryIdInLine,
+            address ownerInLine,
+            uint8 cyclesCompletedInLine,
+            uint8 cyclesRemainingInLine,
+            bool isActiveInLine
+        ) = khoopDefi.getNextInLine();
+        console.log("Next in line: ");
+        console.log("Entry ID: ", entryIdInLine);
+        console.log("Owner: ", ownerInLine);
+        console.log("Cycles completed: ", cyclesCompletedInLine);
+        console.log("Cycles remaining: ", cyclesRemainingInLine);
+        console.log("Is active: ", isActiveInLine);
+
+        usdt.mint(address(khoopDefi), 5e18);
+        khoopDefi.completeCycles();
+
+        // Get next in line after cycles complete
+        (
+            uint256 newEntryIdInLine,
+            address newOwnerInLine,
+            uint8 newCyclesCompletedInLine,
+            uint8 newCyclesRemainingInLine,
+            bool newIsActiveInLine
+        ) = khoopDefi.getNextInLine();
+
+        // Get details of entry with ID 15
+        console.log("Previous NextInLine (Entry ID 15): ");
+        (address entry15Owner,, uint8 entry15CyclesCompleted,, bool entry15IsActive, uint8 entry15CyclesRemaining) =
+            khoopDefi.getEntryDetails(15);
+
+        console.log("  - Owner: ", entry15Owner);
+        console.log("  - Cycles completed: ", entry15CyclesCompleted);
+        console.log("  - Cycles remaining: ", entry15CyclesRemaining);
+        console.log("  - Is active: ", entry15IsActive);
+
+        console.log("\nNext in line after complete cycles: ");
+        console.log("Entry ID: ", newEntryIdInLine);
+        console.log("Owner: ", newOwnerInLine);
+        console.log("Cycles completed: ", newCyclesCompletedInLine);
+        console.log("Cycles remaining: ", newCyclesRemainingInLine);
+        console.log("Is active: ", newIsActiveInLine);
+        console.log("getPendingCyclesCount: ", khoopDefi.getPendingCyclesCount());
     }
 
     // Add this test function to your KhooV2Test.t.sol
@@ -356,17 +405,17 @@ contract KhoopDefiTest is Test {
         uint256[] memory activeEntries = khoopDefi.getUserActiveEntries(user);
         uint256 totalActiveEntries = activeEntries.length;
         uint256 totalCyclesCompleted = 0;
-        
+
         for (uint256 i = 0; i < activeEntries.length; i++) {
             // Use getEntryDetails to get the full entry data
             (,, uint8 cyclesCompleted,,,) = khoopDefi.getEntryDetails(activeEntries[i]);
             totalCyclesCompleted += cyclesCompleted;
         }
-        
+
         console.log("User:", user);
         console.log("  - Total Active Entries:", totalActiveEntries);
         console.log("  - Total Cycles Completed:", totalCyclesCompleted);
-        
+
         return (totalActiveEntries, totalCyclesCompleted);
-}
+    }
 }

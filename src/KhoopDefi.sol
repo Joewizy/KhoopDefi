@@ -6,9 +6,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
- * @title KhoopDefi - Entry-Based Round-Robin Distribution
- * @notice Each entry gets 1 cycle at a time in strict FIFO order
- * @dev No user queue needed - just track entry IDs directly
+ * @title KhoopDefi - Sequential Round-Robin Distribution
+ * @notice Each user completes 1 cycle on ALL slots in order before next user
+ * @dev Strict FIFO - cannot skip slots, must process in exact order
  */
 contract KhoopDefi is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -26,8 +26,7 @@ contract KhoopDefi is ReentrancyGuard {
     error KhoopDefi__UserAlreadyRegistered();
     error KhoopDefi__NoActiveCycles();
     error KhoopDefi__InvalidAmount();
-    error KhoopDefi__GasLimitExceeded();
-    error KhoopDefi__CanOnlyRegisterSelf();
+    error KhoopDefi__GasLimitReached();
 
     // ============ Types ============
     struct User {
@@ -86,17 +85,19 @@ contract KhoopDefi is ReentrancyGuard {
     mapping(address => uint256[]) public userEntries;
     mapping(address => address[]) public userReferrals;
 
-    // ============ Entry Queue ============
-    uint256 public nextEntryToProcess = 1;
+    // Queue management
+    uint256[] public entryQueue;
+    uint256 public nextEntryIndex;
 
     // ============ Global Tracking ============
     GlobalStats public globalStats;
     uint256 public nextEntryId = 1;
-    uint256 private teamAccumulateBalance;
+    uint256 private teamAccumulatedBalance;
 
     // ============ Events ============
     event EntryPurchased(uint256 indexed entryId, address indexed user, address indexed referrer, uint256 amount);
     event CycleCompleted(uint256 indexed entryId, address indexed user, uint8 cycleNumber, uint256 payoutAmount);
+    event RoundCompleted(address indexed user, uint256 roundNumber, uint256 slotsCompleted, uint256 totalPaid);
     event EntryMaxedOut(uint256 indexed entryId, address indexed user);
     event ReferralAdded(address indexed referrer, address indexed referred);
     event ReferrerBonusPaid(address indexed referrer, address indexed referred, uint256 amount);
@@ -106,8 +107,8 @@ contract KhoopDefi is ReentrancyGuard {
     event TeamSharesDistributed(uint256 totalEntries, uint256 totalAmount);
     event CyclesProcessed(uint256 count, uint256 totalPaid);
     event SystemDonation(address indexed donor, uint256 amount);
-    event UserStatusUpdated(address indexed user, bool isActive);
-    event ContractBalanceTooLow(uint256 balance);
+    event UserAddedToQueue(address indexed user);
+    event UserRemovedFromQueue(address indexed user);
 
     // ============ Constructor ============
     constructor(
@@ -144,16 +145,16 @@ contract KhoopDefi is ReentrancyGuard {
             totalReferrals: 0,
             cooldownEnd: 0,
             isRegistered: true,
-            isActive: false
+            isActive: true
         });
         globalStats.totalUsers++;
+        globalStats.totalActiveUsers++;
         emit UserRegistered(powerCycleWallet, address(0));
     }
 
     // ============ External Functions ============
 
     function registerUser(address user, address referrer) external {
-        if (msg.sender != user) revert KhoopDefi__CanOnlyRegisterSelf();
         if (user == referrer) revert KhoopDefi__SelfReferral();
         if (users[user].isRegistered) revert KhoopDefi__UserAlreadyRegistered();
         if (referrer != address(0) && !users[referrer].isRegistered) {
@@ -169,7 +170,7 @@ contract KhoopDefi is ReentrancyGuard {
             totalReferrals: 0,
             cooldownEnd: 0,
             isRegistered: true,
-            isActive: true
+            isActive: false
         });
 
         if (referrer != address(0)) {
@@ -202,15 +203,15 @@ contract KhoopDefi is ReentrancyGuard {
             _createEntry(msg.sender);
         }
 
+        if (!users[msg.sender].isActive) {
+            _updateUserActiveStatus(msg.sender);
+        }
         users[msg.sender].totalEntriesPurchased += numEntries;
         users[msg.sender].cooldownEnd = block.timestamp + COOLDOWN_PERIOD;
         globalStats.totalEntriesPurchased += numEntries;
 
-        // Update user active status
-        _updateUserActiveStatus(msg.sender);
-
         address userReferrer = users[msg.sender].referrer;
-        if (userReferrer != address(0)) {
+        if (userReferrer != address(0) && users[userReferrer].isActive) {
             uint256 totalBonus = numEntries * REFERRER_ENTRY_BONUS;
             _payReferralBonus(userReferrer, totalBonus);
         }
@@ -261,8 +262,9 @@ contract KhoopDefi is ReentrancyGuard {
     }
 
     function _createEntry(address user) internal {
-        entries[nextEntryId] = Entry({
-            entryId: nextEntryId,
+        uint256 entryId = nextEntryId;
+        entries[entryId] = Entry({
+            entryId: entryId,
             owner: user,
             purchaseTimestamp: block.timestamp,
             cyclesCompleted: 0,
@@ -270,8 +272,9 @@ contract KhoopDefi is ReentrancyGuard {
             isActive: true
         });
 
-        userEntries[user].push(nextEntryId);
-        emit EntryPurchased(nextEntryId, user, users[user].referrer, ENTRY_COST);
+        userEntries[user].push(entryId);
+        entryQueue.push(entryId);
+        emit EntryPurchased(entryId, user, users[user].referrer, ENTRY_COST);
         nextEntryId++;
     }
 
@@ -291,35 +294,73 @@ contract KhoopDefi is ReentrancyGuard {
         usdt.safeTransfer(reserveWallet, totalContingency);
 
         uint256 totalDistributed = (totalCorePerWallet * 4) + (totalInvestorPerWallet * 15) + totalContingency;
+        teamAccumulatedBalance += totalDistributed;
         emit TeamSharesDistributed(numEntries, totalDistributed);
     }
 
     /**
-     * @notice Update user's active status based on whether they have active entries
+     * @notice Process cycles sequentially - STRICT FIFO
+     * @dev Must complete slots in exact order, cannot skip
      */
-    function _updateUserActiveStatus(address user) internal {
-        bool hasPendingCycles = _hasPendingCycles(user);
-        bool wasActive = users[user].isActive;
+    function _processAvailableCycles() internal returns (uint256 totalCyclesProcessed) {
+        if (entryQueue.length == 0) return 0;
 
-        if (wasActive != hasPendingCycles) {
-            users[user].isActive = hasPendingCycles;
-            if (hasPendingCycles) {
-                globalStats.totalActiveUsers++; // Only increment if becoming active
-            } else if (wasActive) {
-                globalStats.totalActiveUsers--; // Only decrement if was active
+        uint256 balance = usdt.balanceOf(address(this));
+        uint256 minGas = 50_000;
+        uint256 processed = 0;
+        uint256 startIndex = nextEntryIndex;
+        uint256 totalEntries = entryQueue.length;
+
+        while (balance >= CYCLE_PAYOUT) {
+            if (gasleft() < minGas) revert KhoopDefi__GasLimitReached();
+
+            uint256 entryId = entryQueue[nextEntryIndex];
+            Entry storage entry = entries[entryId];
+
+            if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
+                entry.cyclesCompleted++;
+                entry.lastCycleTimestamp = block.timestamp;
+
+                users[entry.owner].totalCyclesCompleted++;
+                users[entry.owner].totalEarnings += CYCLE_PAYOUT;
+                globalStats.totalCyclesCompleted++;
+                globalStats.totalPayoutsMade += CYCLE_PAYOUT;
+
+                usdt.safeTransfer(entry.owner, CYCLE_PAYOUT);
+                balance -= CYCLE_PAYOUT;
+                totalCyclesProcessed++;
+
+                emit CycleCompleted(entryId, entry.owner, entry.cyclesCompleted, CYCLE_PAYOUT);
+
+                if (entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY) {
+                    entry.isActive = false;
+                    emit EntryMaxedOut(entryId, entry.owner);
+                }
             }
-            emit UserStatusUpdated(user, hasPendingCycles);
+
+            nextEntryIndex = (nextEntryIndex + 1) % entryQueue.length;
+            processed++;
+
+            if (nextEntryIndex == startIndex) {
+                if (totalCyclesProcessed == 0) break; // no eligible entries
+                startIndex = nextEntryIndex; // reset for next round
+                processed = 0; // restart loop
+            }
         }
+
+        if (totalCyclesProcessed > 0) {
+            emit CyclesProcessed(totalCyclesProcessed, totalCyclesProcessed * CYCLE_PAYOUT);
+        }
+
+        return totalCyclesProcessed;
     }
 
-    /**
-     * @notice Check if user has any pending cycles
-     */
+    ///@dev Helper function to check if user has pending cycles
     function _hasPendingCycles(address user) internal view returns (bool) {
-        uint256[] storage userEntryIds = userEntries[user];
+        uint256[] storage userSlots = userEntries[user];
 
-        for (uint256 i = 0; i < userEntryIds.length; i++) {
-            Entry storage entry = entries[userEntryIds[i]];
+        for (uint256 i = 0; i < userSlots.length; i++) {
+            Entry storage entry = entries[userSlots[i]];
             if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
                 return true;
             }
@@ -328,93 +369,27 @@ contract KhoopDefi is ReentrancyGuard {
         return false;
     }
 
-    /**
-     * @notice Process cycles in strict entry ID order - PURE FIFO
-     * @dev Simply iterate from nextEntryToProcess, skip inactive/completed entries
-     */
-    /**
-     * @notice Process cycles in strict entry ID order with wraparound - PURE FIFO
-     * @dev Continuously cycles through all entries until balance exhausted or full loop with no processing
-     */
-    function _processAvailableCycles() internal returns (uint256 totalCyclesProcessed) {
-        uint256 balance = usdt.balanceOf(address(this));
-        if (balance < CYCLE_PAYOUT) {
-            emit ContractBalanceTooLow(balance);
-            return 0;
-        }
+    ///@dev Internal function to update user active status
+    function _updateUserActiveStatus(address user) internal {
+        bool hasActiveEntries = false;
+        uint256[] storage userEntryIds = userEntries[user];
 
-        uint256 maxEntryId = nextEntryId - 1;
-        if (maxEntryId == 0) return 0; // No entries exist
-
-        uint256 totalPaid = 0;
-        uint256 cyclesProcessed = 0;
-        uint256 minGas = 50000;
-        uint256 currentEntryId = nextEntryToProcess;
-        uint256 consecutiveSkips = 0;
-        uint256 totalEntries = maxEntryId; // Total number of entries that exist
-
-        // Keep processing until we run out of balance or make a full loop without processing anything
-        while (balance >= CYCLE_PAYOUT && consecutiveSkips < totalEntries) {
-            if (gasleft() < minGas) revert KhoopDefi__GasLimitExceeded();
-
-            // Wraparound: if we go past the last entry, loop back to entry #1
-            if (currentEntryId > maxEntryId) {
-                currentEntryId = 1;
-                // If we've made a full loop without processing anything, break
-                if (consecutiveSkips >= totalEntries) break;
-            }
-
-            Entry storage entry = entries[currentEntryId];
-
-            // Skip if entry doesn't exist, is inactive, or completed all cycles
-            if (entry.entryId == 0 || !entry.isActive || entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY) {
-                consecutiveSkips++;
-                currentEntryId++;
-                continue;
-            }
-
-            // Check balance again right before processing
-            if (balance < CYCLE_PAYOUT) {
-                emit ContractBalanceTooLow(balance);
+        for (uint256 i = 0; i < userEntryIds.length; i++) {
+            Entry storage entry = entries[userEntryIds[i]];
+            if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
+                hasActiveEntries = true;
                 break;
             }
+        }
 
-            // Process one cycle for this entry
-            entry.cyclesCompleted++;
-            entry.lastCycleTimestamp = block.timestamp;
-
-            address owner = entry.owner;
-            users[owner].totalCyclesCompleted++;
-            users[owner].totalEarnings += CYCLE_PAYOUT;
-            globalStats.totalCyclesCompleted++;
-            globalStats.totalPayoutsMade += CYCLE_PAYOUT;
-
-            // Check if entry completed all cycles
-            if (entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY) {
-                entry.isActive = false;
-                emit EntryMaxedOut(currentEntryId, owner);
-                _updateUserActiveStatus(owner);
+        if (users[user].isActive != hasActiveEntries) {
+            users[user].isActive = hasActiveEntries;
+            if (hasActiveEntries) {
+                globalStats.totalActiveUsers++;
+            } else {
+                globalStats.totalActiveUsers--;
             }
-
-            // Send payout and update balance
-            usdt.safeTransfer(owner, CYCLE_PAYOUT);
-            balance -= CYCLE_PAYOUT;
-            totalPaid += CYCLE_PAYOUT;
-            cyclesProcessed++;
-            consecutiveSkips = 0; // Reset counter on successful processing
-
-            emit CycleCompleted(currentEntryId, owner, entry.cyclesCompleted, CYCLE_PAYOUT);
-            currentEntryId++;
         }
-
-        // Save where to start next time (with wraparound)
-        nextEntryToProcess = currentEntryId > maxEntryId ? 1 : currentEntryId;
-
-        if (cyclesProcessed > 0) {
-            emit CyclesProcessed(cyclesProcessed, totalPaid);
-        }
-
-        return cyclesProcessed;
     }
 
     // ============ View Functions ============
@@ -423,8 +398,16 @@ contract KhoopDefi is ReentrancyGuard {
         return userEntries[user];
     }
 
+    function isUserActive(address user) external view returns (bool) {
+        return users[user].isActive;
+    }
+
     function getContractBalance() external view returns (uint256) {
         return usdt.balanceOf(address(this));
+    }
+
+    function getTeamAccumulatedBalance() external view returns (uint256) {
+        return teamAccumulatedBalance;
     }
 
     function getCooldownRemaining(address user) external view returns (uint256) {
@@ -434,16 +417,47 @@ contract KhoopDefi is ReentrancyGuard {
         return users[user].cooldownEnd - block.timestamp;
     }
 
-    function isUserActive(address user) external view returns (bool) {
-        return users[user].isActive;
+    function getNextInLine()
+        external
+        view
+        returns (uint256 entryId, address owner, uint8 cyclesCompleted, uint8 cyclesRemaining, bool isActive)
+    {
+        uint256 totalEntries = entryQueue.length;
+        require(totalEntries > 0, "No entries in queue");
+
+        uint256 index = nextEntryIndex;
+        for (uint256 i = 0; i < totalEntries; i++) {
+            uint256 currentId = entryQueue[index];
+            Entry storage entry = entries[currentId];
+
+            if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
+                return (
+                    currentId,
+                    entry.owner,
+                    entry.cyclesCompleted,
+                    uint8(MAX_CYCLES_PER_ENTRY - entry.cyclesCompleted),
+                    entry.isActive
+                );
+            }
+
+            index = (index + 1) % totalEntries;
+        }
+
+        // If we get here, no eligible entries were found
+        return (0, address(0), 0, 0, false);
     }
 
-    function userHasPendingCycles(address user) external view returns (bool) {
-        return _hasPendingCycles(user);
-    }
+    function getPendingCyclesCount() external view returns (uint256 totalPendingCycles) {
+        uint256 queueLength = entryQueue.length;
 
-    function getTeamAccumulateBalance() external view returns (uint256) {
-        return teamAccumulateBalance;
+        for (uint256 i = 0; i < queueLength; i++) {
+            Entry storage entry = entries[entryQueue[i]];
+            if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
+                totalPendingCycles += MAX_CYCLES_PER_ENTRY - entry.cyclesCompleted;
+            }
+        }
+
+        return totalPendingCycles;
     }
 
     function getEntryDetails(uint256 entryId)
@@ -516,29 +530,6 @@ contract KhoopDefi is ReentrancyGuard {
         );
     }
 
-    function getNextEntryToProcess() external view returns (uint256) {
-        return nextEntryToProcess;
-    }
-
-    function getNextInLine()
-        external
-        view
-        returns (uint256 entryId, address owner, uint8 cyclesCompleted, uint8 cyclesRemaining)
-    {
-        Entry storage entry = entries[nextEntryToProcess];
-        if (entry.entryId == 0) {
-            // Entry doesn't exist
-            return (0, address(0), 0, 0);
-        }
-
-        return (
-            entry.entryId,
-            entry.owner,
-            entry.cyclesCompleted,
-            entry.isActive ? uint8(MAX_CYCLES_PER_ENTRY - entry.cyclesCompleted) : 0
-        );
-    }
-
     function getUserActiveEntries(address user) external view returns (uint256[] memory) {
         uint256[] memory userEntryIds = userEntries[user];
         uint256 activeCount = 0;
@@ -576,41 +567,6 @@ contract KhoopDefi is ReentrancyGuard {
         return potential;
     }
 
-    function getPendingCyclesCount() external view returns (uint256 count) {
-        uint256 availableBalance = usdt.balanceOf(address(this));
-        if (availableBalance < CYCLE_PAYOUT) return 0;
-
-        uint256 tempBalance = availableBalance;
-        uint256 maxId = nextEntryId - 1;
-        uint256 currentId = nextEntryToProcess;
-        uint256 consecutiveSkips = 0;
-        count = 0;
-
-        while (tempBalance >= CYCLE_PAYOUT) {
-            if (currentId > maxId) {
-                currentId = 1;
-            }
-
-            Entry storage entry = entries[currentId];
-
-            if (entry.entryId == 0 || !entry.isActive || entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY) {
-                consecutiveSkips++;
-                if (consecutiveSkips > maxId) {
-                    break;
-                }
-                currentId++;
-                continue;
-            }
-
-            consecutiveSkips = 0;
-            count++;
-            tempBalance -= CYCLE_PAYOUT;
-            currentId++;
-        }
-
-        return count;
-    }
-
     function getInactiveReferrals(address referrer) external view returns (address[] memory) {
         address[] storage referrals = userReferrals[referrer];
         uint256 totalReferrals = referrals.length;
@@ -630,5 +586,9 @@ contract KhoopDefi is ReentrancyGuard {
         }
 
         return inactiveReferrals;
+    }
+
+    function userHasPendingCycles(address user) external view returns (bool) {
+        return _hasPendingCycles(user);
     }
 }
