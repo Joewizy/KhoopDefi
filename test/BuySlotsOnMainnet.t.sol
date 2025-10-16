@@ -21,8 +21,6 @@ contract BuySlotsOnMainnetTest is Test {
     address public reserveWallet;
     address public buybackWallet;
     address public powerCycleWallet;
-    address[] public signers;
-    uint256 public requiredSignatures = 2;
 
     address obed = makeAddr("obed");
     address sam = makeAddr("sam");
@@ -40,17 +38,12 @@ contract BuySlotsOnMainnetTest is Test {
         for (uint256 i = 0; i < 15; i++) {
             investors[i] = address(this);
         }
-        signers = coreTeam;
         reserveWallet = address(this);
         buybackWallet = address(this);
         powerCycleWallet = address(this);
 
-        signers.push(obed);
-        signers.push(sam);
         // Deploy KhoopDefi contract
-        khoopDefi = new KhoopDefi(
-            coreTeam, investors, reserveWallet, powerCycleWallet, signers, requiredSignatures, address(USDT)
-        );
+        khoopDefi = new KhoopDefi(coreTeam, investors, reserveWallet, powerCycleWallet, address(USDT));
 
         // Impersonate the test wallet for the test
         vm.startPrank(TEST_WALLET);

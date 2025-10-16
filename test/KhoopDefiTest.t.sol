@@ -5,18 +5,18 @@ import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/Test.sol";
 import {KhoopDefi} from "../src/KhoopDefi.sol";
 import {MockUSDT} from "./mocks/MockUSDT.sol";
+import {KhoopDefiV2} from "../src/v1.sol";
 
 contract KhoopDefiTest is Test {
-    KhoopDefi public khoopDefi;
+    // KhoopDefi public khoopDefi;
     MockUSDT public usdt;
+    KhoopDefiV2 public khoopDefi;
 
     address[4] coreTeam;
     address[15] investors;
     address reserve;
     address buyback;
     address powerCycle;
-    address[] public signers;
-    uint256 public requiredSignatures = 2;
 
     uint256 public constant SLOT_PRICE = 15e18;
     uint256 public constant USDT_DECIMALS = 10 ** 18;
@@ -38,10 +38,8 @@ contract KhoopDefiTest is Test {
         reserve = address(this);
         buyback = address(this);
         powerCycle = address(this);
-        signers.push(test1);
-        signers.push(test2);
 
-        khoopDefi = new KhoopDefi(coreTeam, investors, reserve, powerCycle, signers, requiredSignatures, address(usdt));
+        khoopDefi = new KhoopDefiV2(coreTeam, investors, reserve, powerCycle, address(usdt));
     }
 
     function testPurchaseEntries() public {
@@ -49,6 +47,69 @@ contract KhoopDefiTest is Test {
         vm.startPrank(user);
         khoopDefi.purchaseEntries(10);
         vm.stopPrank();
+    }
+
+    function testExpectedPayout() public {
+        _registerUser(user);
+        _registerUser(test1);
+        _registerUser(test2);
+        _registerUser(test3);
+       // usdt.mint(address(khoopDefi), 100e18);
+
+        vm.prank(user);
+        khoopDefi.purchaseEntries(1);
+        (
+            uint256 totalEntriesPurchased,
+            uint256 totalCyclesCompleted,
+            uint256 referrerBonusEarned,
+            uint256 totalEarnings,
+            uint256 totalReferrals,
+            bool isActive
+        ) = khoopDefi.getUserStats(user);
+        console.log("==== Test For Slot1 ====");
+        console.log("Total cycles completed: ", totalCyclesCompleted);
+        console.log("Total earnings: ", totalEarnings);
+        console.log("Contract balance after 1st purchase: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
+
+        vm.prank(test1);
+        khoopDefi.purchaseEntries(1);
+        (totalEntriesPurchased, totalCyclesCompleted, referrerBonusEarned, totalEarnings, totalReferrals, isActive) =
+            khoopDefi.getUserStats(test1);
+        console.log("==== Test For Slot2 ====");
+        console.log("Total cycles completed: ", totalCyclesCompleted);
+        console.log("Total earnings: ", totalEarnings);
+        console.log("Contract balance after 2nd purchase: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
+
+        vm.prank(test2);
+        khoopDefi.purchaseEntries(1);
+        (totalEntriesPurchased, totalCyclesCompleted, referrerBonusEarned, totalEarnings, totalReferrals, isActive) =
+            khoopDefi.getUserStats(test2);
+        console.log("==== Test For Slot3 ====");
+        console.log("Total cycles completed: ", totalCyclesCompleted);
+        console.log("Total earnings: ", totalEarnings);
+        console.log("Contract balance after 3rd purchase: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
+
+        vm.prank(test3);
+        khoopDefi.purchaseEntries(1);
+        (totalEntriesPurchased, totalCyclesCompleted, referrerBonusEarned, totalEarnings, totalReferrals, isActive) =
+            khoopDefi.getUserStats(test3);
+        console.log("==== Test For Slot4 ====");
+        console.log("Total cycles completed: ", totalCyclesCompleted);
+        console.log("Total earnings: ", totalEarnings);
+        console.log("Contract balance after 4th purchase: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
+
+        console.log("Pending cycles count: ", khoopDefi.getPendingCyclesCount());
+        console.log("Contract balance ending: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
+
+        for (uint256 i = 1; i <= 4; i++) {
+            (address owner,, uint8 cyclesCompleted, uint256 lastCycleTimestamp, bool isActive, uint8 cyclesRemaining) =
+                khoopDefi.getEntryDetails(i);
+            console.log("Owner: ", owner);
+            console.log("Cycles completed: ", cyclesCompleted);
+            console.log("Last cycle timestamp: ", lastCycleTimestamp);
+            console.log("Is active: ", isActive);
+            console.log("Cycles remaining: ", cyclesRemaining);
+        }
     }
 
     function testMultipleUsers() public {
@@ -59,29 +120,72 @@ contract KhoopDefiTest is Test {
         uint256 initialGas = gasleft();
 
         vm.startPrank(user);
+        console.log("Contract balance before user purchase: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
         khoopDefi.purchaseEntries(10);
+        console.log("Contract balance after user purchase 10 slots: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
         vm.stopPrank();
 
         vm.startPrank(test1);
+        uint256[] memory userActiveEntries = khoopDefi.getUserActiveEntries(user);
+        _getUserActiveEntriesDetails(user);
+        console.log("User Active Entries after 10 buy: ", userActiveEntries.length);
         khoopDefi.purchaseEntries(10);
+        console.log("Contract balance after test1 purchase 10 slots: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
+        console.log("After test1 bought 10 entries:");
+        _getUserActiveEntriesDetails(user);
+        console.log("Test 1 entry details");
+        (address owner,, uint8 cyclesCompleted, uint256 lastCycleTimestamp, bool isActive, uint8 cyclesRemaining) = khoopDefi.getEntryDetails(20);
+        console.log("Test 1 last entry should get at least one cycle");
+        console.log("Cycles completed: ", cyclesCompleted);
+        console.log("Last cycle timestamp: ", lastCycleTimestamp);
+        console.log("Is active: ", isActive);
+        console.log("Cycles remaining: ", cyclesRemaining);
         vm.stopPrank();
 
         vm.startPrank(test2);
+        uint256[] memory test1ActiveEntries = khoopDefi.getUserActiveEntries(test1);
+        _getUserActiveEntriesDetails(test1);
+        console.log("Test1 Active Entries after 10 buy: ", test1ActiveEntries.length);
         khoopDefi.purchaseEntries(10);
+        console.log("Contract balance after test2 purchase 10 slots: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
+        console.log("Test 2 entry details");
+        khoopDefi.getEntryDetails(20);
         vm.stopPrank();
 
         vm.startPrank(test3);
+        uint256[] memory test2ActiveEntries = khoopDefi.getUserActiveEntries(test2);
+        _getUserActiveEntriesDetails(test2);
+        console.log("Test2 Active Entries after 10 buy: ", test2ActiveEntries.length);
         khoopDefi.purchaseEntries(10);
+        console.log("Contract balance after test3 purchase 10 slots: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
         vm.stopPrank();
         uint256 finalGas = gasleft();
+
+        uint256[] memory test3ActiveEntries = khoopDefi.getUserActiveEntries(test3);
+        _getUserActiveEntriesDetails(test3);
+        console.log("Test3 Active Entries after 10 buy: ", test3ActiveEntries.length);
 
         console.log("Initial Gas: ", initialGas);
         console.log("Final Gas: ", finalGas);
         console.log("Gas Used: ", initialGas - finalGas);
 
-        // All testers should have cycles completed
-        uint256 pendingCyclesCount = khoopDefi.getPendingCyclesCount();
-        console.log("Pending Cycles Count: ", pendingCyclesCount);
+        uint256[] memory userActiveEntriesFinal = khoopDefi.getUserActiveEntries(user);
+        uint256[] memory test1ActiveEntriesFinal = khoopDefi.getUserActiveEntries(test1);
+        uint256[] memory test2ActiveEntriesFinal = khoopDefi.getUserActiveEntries(test2);
+        uint256[] memory test3ActiveEntriesFinal = khoopDefi.getUserActiveEntries(test3);
+        console.log("User Final Active Entries: ", userActiveEntriesFinal.length);
+        console.log("Test1 Final Active Entries: ", test1ActiveEntriesFinal.length);
+        console.log("Test2 Final Active Entries: ", test2ActiveEntriesFinal.length);
+        console.log("Test3 Final Active Entries: ", test3ActiveEntriesFinal.length);
+        console.log("Contract balance after test3 purchase 10 slots: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
+        (uint256 totalUsers, uint256 totalActiveUsers, uint256 totalEntriesPurchased, uint256 totalReferrerBonusPaid, uint256 totalPayoutsMade, uint256 totalCyclesCompleted) = khoopDefi.getGlobalStats();
+        console.log("Total users: ", totalUsers);
+        console.log("Total active users: ", totalActiveUsers);
+        console.log("Total entries purchased: ", totalEntriesPurchased);
+        console.log("Total referrer bonus paid: ", totalReferrerBonusPaid / 1e18);
+        console.log("Total payouts made: ", totalPayoutsMade / 1e18);
+        console.log("Total cycles completed: ", totalCyclesCompleted);
+        console.log("Total money team accumulated: ", khoopDefi.getTeamAccumulatedBalance() / 1e18);
     }
 
     // Add this test function to your KhooV2Test.t.sol
@@ -132,25 +236,6 @@ contract KhoopDefiTest is Test {
         console.log("Total entries purchased:", totalEntriesPurchased);
         console.log("Total payouts made:", totalPayoutsMade / 1e18);
         console.log("Total cycles completed:", totalCyclesCompleted);
-
-        uint256 queueIndex = khoopDefi.getCurrentQueueIndex();
-        uint256 pendingCyclesCount = khoopDefi.getPendingCyclesCount();
-        (address user, uint256 userTotalSlots) = khoopDefi.getNextInLine();
-        uint256 queueLength = khoopDefi.getQueueLength();
-        address[] memory queueOrder = khoopDefi.getQueueOrder();
-        (, uint256 userTotalCyclesCompleted,,,) = khoopDefi.getUserStats(0x0000000000000000000000000000000000002983);
-        (address owner,, uint8 cyclesCompleted,, bool isActive, uint8 cyclesRemaining) = khoopDefi.getEntryDetails(6016);
-        console.log("Current queue index:", queueIndex);
-        console.log("Address at current index", queueOrder[queueIndex]);
-        console.log("Pending cycles count:", pendingCyclesCount);
-        console.log("Next in line:", user);
-        console.log("User total slots:", userTotalSlots);
-        console.log("User total cycles completed:", userTotalCyclesCompleted);
-        console.log("Queue length:", queueLength);
-        console.log("Owner:", owner);
-        console.log("Cycles completed:", cyclesCompleted);
-        console.log("Is active:", isActive);
-        console.log("Cycles remaining:", cyclesRemaining);
     }
 
     function testBuyersIsInacticeWhenMaxedOut() public {
@@ -158,13 +243,14 @@ contract KhoopDefiTest is Test {
         vm.prank(user);
         khoopDefi.purchaseEntries(1);
 
-        (address owner,, uint8 cyclesCompleted,, bool isActive, uint8 cyclesRemaining) = khoopDefi.getEntryDetails(1);
+        (address owner,, uint8 cyclesCompleted, uint256 lastCycleTimestamp, bool isActive, uint8 cyclesRemaining) =
+            khoopDefi.getEntryDetails(1);
         (
             uint256 totalEntriesPurchased,
             uint256 totalCyclesCompleted,
             uint256 referrerBonusEarned,
             uint256 totalEarnings,
-            uint256 totalReferrals
+            uint256 totalReferrals,
         ) = khoopDefi.getUserStats(user);
         console.log("Owner: ", owner);
         console.log("Cycles completed: ", cyclesCompleted);
@@ -191,7 +277,7 @@ contract KhoopDefiTest is Test {
         console.log("Is active: ", isActive);
         console.log("Cycles remaining: ", cyclesRemaining);
         console.log("User has pending cycles: ", khoopDefi.userHasPendingCycles(user));
-        (totalEntriesPurchased, totalCyclesCompleted, referrerBonusEarned, totalEarnings, totalReferrals) =
+        (totalEntriesPurchased, totalCyclesCompleted, referrerBonusEarned, totalEarnings, totalReferrals, isActive) =
             khoopDefi.getUserStats(user);
         console.log("Total entries purchased: ", totalEntriesPurchased);
         console.log("Total cycles completed: ", totalCyclesCompleted);
@@ -247,29 +333,6 @@ contract KhoopDefiTest is Test {
 
     // should write an invaraint test that the contract balance would always be less than $3 expected top up manually
 
-    function testOnlySignersCanInitiateWithdrawal() public {
-        vm.startPrank(user);
-        vm.expectRevert(KhoopDefi.KhoopDefi__NotASigner.selector);
-        khoopDefi.initiateWithdrawal(user, 100e18);
-        vm.stopPrank();
-    }
-
-    function testSignersCanInitiateWithdrawl() public {
-        vm.prank(signers[0]);
-        address to = user;
-        uint256 amount = 100e18;
-        khoopDefi.initiateWithdrawal(to, amount);
-        bytes32 withdrawalId = keccak256(abi.encodePacked(to, amount, block.timestamp, block.prevrandao));
-        uint256 startingBalance = usdt.balanceOf(user);
-
-        vm.warp(block.timestamp + 48 hours);
-        usdt.mint(address(khoopDefi), amount);
-
-        vm.prank(signers[1]);
-        khoopDefi.confirmWithdrawal(withdrawalId);
-        assertEq(usdt.balanceOf(user), startingBalance + amount);
-    }
-
     function _registerUser(address user) internal {
         usdt.mint(user, STARTING_AMOUNT);
         vm.startPrank(user);
@@ -288,4 +351,22 @@ contract KhoopDefiTest is Test {
             vm.stopPrank();
         }
     }
+
+    function _getUserActiveEntriesDetails(address user) internal view returns (uint256, uint256) {
+        uint256[] memory activeEntries = khoopDefi.getUserActiveEntries(user);
+        uint256 totalActiveEntries = activeEntries.length;
+        uint256 totalCyclesCompleted = 0;
+        
+        for (uint256 i = 0; i < activeEntries.length; i++) {
+            // Use getEntryDetails to get the full entry data
+            (,, uint8 cyclesCompleted,,,) = khoopDefi.getEntryDetails(activeEntries[i]);
+            totalCyclesCompleted += cyclesCompleted;
+        }
+        
+        console.log("User:", user);
+        console.log("  - Total Active Entries:", totalActiveEntries);
+        console.log("  - Total Cycles Completed:", totalCyclesCompleted);
+        
+        return (totalActiveEntries, totalCyclesCompleted);
+}
 }
