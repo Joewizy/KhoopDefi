@@ -7,7 +7,6 @@ import {KhoopDefi} from "../src/KhoopDefi.sol";
 
 contract DeployKhoopDefi is Script {
     function run() external returns (KhoopDefi) {
-        vm.startBroadcast();
         // Read wallet config from JSON
         string memory json = vm.readFile("src/wallets.json");
 
@@ -27,21 +26,17 @@ contract DeployKhoopDefi is Script {
             investors[i] = investorsDynamic[i];
         }
 
-        // uint256 USDT_AMOUNT = 100e18;
-
         // Parse additional single addresses
         address reserve = abi.decode(vm.parseJson(json, ".additional.contingency"), (address));
-        address buyback = abi.decode(vm.parseJson(json, ".additional.buyback"), (address));
         address powerCycle = abi.decode(vm.parseJson(json, ".additional.PowerLine"), (address));
-
-        // address usdtToken = 0x55d398326f99059fF775485246999027B3197955; bscMainnet
         address usdtToken = 0x1648C0B178EEbCb57Aa31E3C62Ee2B52bfD1A123; // bscTestnet
 
-        // Deploy with addresses from JSON/env
-        KhoopDefi khoopDefi =
-            new KhoopDefi(coreTeam, investors, reserve, powerCycle, usdtToken);
-
+        // Deploy with broadcast
+        vm.startBroadcast();
+        KhoopDefi khoopDefi = new KhoopDefi(coreTeam, investors, reserve, powerCycle, usdtToken);
         vm.stopBroadcast();
+
+        console.log("KhoopDefi deployed to:", address(khoopDefi));
         return khoopDefi;
     }
 }

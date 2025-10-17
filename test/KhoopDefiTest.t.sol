@@ -116,6 +116,7 @@ contract KhoopDefiTest is Test {
         _registerUser(test2);
         _registerUser(test3);
         uint256 initialGas = gasleft();
+        usdt.mint(address(khoopDefi), STARTING_AMOUNT * 10);
 
         vm.startPrank(user);
         console.log("Contract balance before user purchase: ", usdt.balanceOf(address(khoopDefi)) / 1e18);
@@ -206,8 +207,8 @@ contract KhoopDefiTest is Test {
         console.log("Cycles remaining: ", cyclesRemainingInLine);
         console.log("Is active: ", isActiveInLine);
 
-        usdt.mint(address(khoopDefi), 5e18);
-        khoopDefi.completeCycles();
+        // usdt.mint(address(khoopDefi), 5e18);
+        // khoopDefi.completeCycles();
 
         // Get next in line after cycles complete
         (

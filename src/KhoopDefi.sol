@@ -103,7 +103,7 @@ contract KhoopDefi is ReentrancyGuard {
     event UserRegistered(address indexed user, address indexed referrer);
     event BatchEntryPurchased(uint256 startId, uint256 endId, address indexed user, uint256 totalCost);
     event CooldownReduced(address indexed user, uint256 feePaid);
-    event TeamSharesDistributed(uint256 totalEntries, uint256 totalAmount);
+    event TeamSharesDistributed(uint256 totalAmount);
     event CyclesProcessed(uint256 count, uint256 totalPaid);
     event SystemDonation(address indexed donor, uint256 amount);
 
@@ -207,13 +207,6 @@ contract KhoopDefi is ReentrancyGuard {
         users[msg.sender].cooldownEnd = block.timestamp + COOLDOWN_PERIOD;
         globalStats.totalEntriesPurchased += numEntries;
 
-        address userReferrer = users[msg.sender].referrer;
-        if (userReferrer != address(0) && users[userReferrer].isActive) {
-            uint256 totalBonus = numEntries * REFERRER_ENTRY_BONUS;
-            _payReferralBonus(userReferrer, totalBonus);
-        }
-
-        _distributeTeamShares(numEntries);
         _processAvailableCycles();
 
         emit BatchEntryPurchased(startId, nextEntryId - 1, msg.sender, totalCost);
@@ -275,10 +268,10 @@ contract KhoopDefi is ReentrancyGuard {
         nextEntryId++;
     }
 
-    function _distributeTeamShares(uint256 numEntries) internal {
-        uint256 totalCorePerWallet = CORE_TEAM_SHARE * numEntries;
-        uint256 totalInvestorPerWallet = INVESTORS_SHARE * numEntries;
-        uint256 totalContingency = CONTINGENCY_SHARE * numEntries;
+    function _distributeTeamShares() internal {
+        uint256 totalCorePerWallet = CORE_TEAM_SHARE;
+        uint256 totalInvestorPerWallet = INVESTORS_SHARE;
+        uint256 totalContingency = CONTINGENCY_SHARE;
 
         for (uint256 i = 0; i < 4; i++) {
             usdt.safeTransfer(coreTeamWallet[i], totalCorePerWallet);
@@ -292,7 +285,7 @@ contract KhoopDefi is ReentrancyGuard {
 
         uint256 totalDistributed = (totalCorePerWallet * 4) + (totalInvestorPerWallet * 15) + totalContingency;
         teamAccumulatedBalance += totalDistributed;
-        emit TeamSharesDistributed(numEntries, totalDistributed);
+        emit TeamSharesDistributed(totalDistributed);
     }
 
     /**
@@ -307,14 +300,26 @@ contract KhoopDefi is ReentrancyGuard {
         uint256 processed = 0;
         uint256 startIndex = nextEntryIndex;
         uint256 totalEntries = entryQueue.length;
+        uint256 totalTeamShare = CORE_TEAM_SHARE + INVESTORS_SHARE + CONTINGENCY_SHARE;
+        uint256 totalCostPerCycle = CYCLE_PAYOUT + REFERRER_ENTRY_BONUS;
+        uint256 consecutiveSkips = 0;
+        uint256 maxConsecutiveSkips = entryQueue.length;
 
-        while (balance >= CYCLE_PAYOUT) {
+        while (balance >= totalCostPerCycle && consecutiveSkips < maxConsecutiveSkips) {
             if (gasleft() < minGas) revert KhoopDefi__GasLimitReached();
 
             uint256 entryId = entryQueue[nextEntryIndex];
             Entry storage entry = entries[entryId];
 
             if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
+                _distributeTeamShares();
+
+                // Process referral if exists
+                address userReferrer = users[entry.owner].referrer;
+                if (userReferrer != address(0) && users[userReferrer].isActive) {
+                    _payReferralBonus(userReferrer, REFERRER_ENTRY_BONUS);
+                }
+
                 entry.cyclesCompleted++;
                 entry.lastCycleTimestamp = block.timestamp;
 
@@ -326,6 +331,7 @@ contract KhoopDefi is ReentrancyGuard {
                 usdt.safeTransfer(entry.owner, CYCLE_PAYOUT);
                 balance -= CYCLE_PAYOUT;
                 totalCyclesProcessed++;
+                consecutiveSkips = 0; // Reset consecutive skips counter
 
                 emit CycleCompleted(entryId, entry.owner, entry.cyclesCompleted, CYCLE_PAYOUT);
 
@@ -333,6 +339,8 @@ contract KhoopDefi is ReentrancyGuard {
                     entry.isActive = false;
                     emit EntryMaxedOut(entryId, entry.owner);
                 }
+            } else {
+                consecutiveSkips++; // Increment skip counter
             }
 
             nextEntryIndex = (nextEntryIndex + 1) % entryQueue.length;
