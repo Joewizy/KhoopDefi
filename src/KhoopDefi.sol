@@ -323,7 +323,7 @@ contract KhoopDefi is ReentrancyGuard {
 
                 // Revert if we can't pay for this entry
                 if (balance < requiredBalance) {
-                    revert KhoopDefi__InsufficientBalance();
+                    break;
                 }
 
                 // Process the payment
