@@ -428,12 +428,23 @@ contract KhoopDefi is ReentrancyGuard {
         returns (uint256 entryId, address owner, uint8 cyclesCompleted, uint8 cyclesRemaining, bool isActive)
     {
         uint256 totalEntries = entryQueue.length;
-        require(totalEntries > 0, "No entries in queue");
+        if (totalEntries == 0) return (0, address(0), 0, 0, false);
 
-        uint256 index = nextEntryIndex;
+        // Check the current next entry first (most likely to be eligible)
+        uint256 currentId = entryQueue[nextEntryIndex];
+        Entry storage entry = entries[currentId];
+
+        if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
+            return (
+                currentId, entry.owner, entry.cyclesCompleted, uint8(MAX_CYCLES_PER_ENTRY - entry.cyclesCompleted), true
+            );
+        }
+
+        // If current next isn't eligible, do a full search but track the next valid index
+        uint256 nextValidIndex = (nextEntryIndex + 1) % totalEntries;
         for (uint256 i = 0; i < totalEntries; i++) {
-            uint256 currentId = entryQueue[index];
-            Entry storage entry = entries[currentId];
+            currentId = entryQueue[nextValidIndex];
+            entry = entries[currentId];
 
             if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
                 return (
@@ -441,14 +452,13 @@ contract KhoopDefi is ReentrancyGuard {
                     entry.owner,
                     entry.cyclesCompleted,
                     uint8(MAX_CYCLES_PER_ENTRY - entry.cyclesCompleted),
-                    entry.isActive
+                    true
                 );
             }
 
-            index = (index + 1) % totalEntries;
+            nextValidIndex = (nextValidIndex + 1) % totalEntries;
         }
 
-        // If we get here, no eligible entries were found
         return (0, address(0), 0, 0, false);
     }
 
