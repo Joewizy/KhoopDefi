@@ -71,6 +71,7 @@ contract KhoopDefi is ReentrancyGuard {
     uint256 private constant COOLDOWN_PERIOD = 30 minutes;
     uint256 private constant REDUCED_COOLDOWN = 15 minutes;
     uint256 private constant COOLDOWN_FEE = 5e17;
+    uint256 private constant TOTAL_TEAM_SHARE = (CORE_TEAM_SHARE * 4) + (INVESTORS_SHARE * 15) + CONTINGENCY_SHARE;
 
     // ============ Immutable State Variables ============
     IERC20 public immutable usdt;
@@ -300,38 +301,51 @@ contract KhoopDefi is ReentrancyGuard {
         uint256 processed = 0;
         uint256 startIndex = nextEntryIndex;
         uint256 totalEntries = entryQueue.length;
-        uint256 totalTeamShare = CORE_TEAM_SHARE + INVESTORS_SHARE + CONTINGENCY_SHARE;
-        uint256 totalCostPerCycle = CYCLE_PAYOUT + REFERRER_ENTRY_BONUS;
-        uint256 consecutiveSkips = 0;
         uint256 maxConsecutiveSkips = entryQueue.length;
+        uint256 consecutiveSkips = 0;
 
-        while (balance >= totalCostPerCycle && consecutiveSkips < maxConsecutiveSkips) {
+        while (consecutiveSkips < maxConsecutiveSkips) {
             if (gasleft() < minGas) revert KhoopDefi__GasLimitReached();
 
             uint256 entryId = entryQueue[nextEntryIndex];
             Entry storage entry = entries[entryId];
 
             if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
+                // Check for active referrer
+                address userReferrer = users[entry.owner].referrer;
+                bool hasActiveReferrer = (userReferrer != address(0) && users[userReferrer].isActive);
+
+                // Calculate required balance for this specific entry
+                uint256 requiredBalance = CYCLE_PAYOUT + TOTAL_TEAM_SHARE;
+                if (hasActiveReferrer) {
+                    requiredBalance += REFERRER_ENTRY_BONUS;
+                }
+
+                // Revert if we can't pay for this entry
+                if (balance < requiredBalance) {
+                    revert KhoopDefi__InsufficientBalance();
+                }
+
+                // Process the payment
                 _distributeTeamShares();
 
-                // Process referral if exists
-                address userReferrer = users[entry.owner].referrer;
-                if (userReferrer != address(0) && users[userReferrer].isActive) {
+                if (hasActiveReferrer) {
                     _payReferralBonus(userReferrer, REFERRER_ENTRY_BONUS);
                 }
 
+                // Update entry and user stats
                 entry.cyclesCompleted++;
                 entry.lastCycleTimestamp = block.timestamp;
-
                 users[entry.owner].totalCyclesCompleted++;
                 users[entry.owner].totalEarnings += CYCLE_PAYOUT;
                 globalStats.totalCyclesCompleted++;
                 globalStats.totalPayoutsMade += CYCLE_PAYOUT;
 
+                // Transfer to user
                 usdt.safeTransfer(entry.owner, CYCLE_PAYOUT);
-                balance -= CYCLE_PAYOUT;
+                balance -= requiredBalance;
                 totalCyclesProcessed++;
-                consecutiveSkips = 0; // Reset consecutive skips counter
+                consecutiveSkips = 0;
 
                 emit CycleCompleted(entryId, entry.owner, entry.cyclesCompleted, CYCLE_PAYOUT);
 
@@ -340,16 +354,16 @@ contract KhoopDefi is ReentrancyGuard {
                     emit EntryMaxedOut(entryId, entry.owner);
                 }
             } else {
-                consecutiveSkips++; // Increment skip counter
+                consecutiveSkips++;
             }
 
-            nextEntryIndex = (nextEntryIndex + 1) % entryQueue.length;
+            nextEntryIndex = (nextEntryIndex + 1) % totalEntries;
             processed++;
 
             if (nextEntryIndex == startIndex) {
-                if (totalCyclesProcessed == 0) break; // no eligible entries
-                startIndex = nextEntryIndex; // reset for next round
-                processed = 0; // restart loop
+                if (totalCyclesProcessed == 0) break;
+                startIndex = nextEntryIndex;
+                processed = 0;
             }
         }
 
