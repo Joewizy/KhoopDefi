@@ -7,8 +7,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 /**
  * @title KhoopDefi - Sequential Round-Robin Distribution
- * @notice Each user completes 1 cycle on ALL slots in order before next user
- * @dev Strict FIFO - cannot skip slots, must process in exact order
+ * @notice Referral & team earn: 1x at purchase + cycles 1,2,3 (NOT cycle 4)
+ * @dev Total 4 payments per slot: purchase + first 3 cycles only
  */
 contract KhoopDefi is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -57,6 +57,7 @@ contract KhoopDefi is ReentrancyGuard {
         uint256 totalReferrerBonusPaid;
         uint256 totalPayoutsMade;
         uint256 totalCyclesCompleted;
+        uint256 totalSlotsRemaining; // Track remaining slots for donations
     }
 
     // ============ Constants ============
@@ -66,6 +67,7 @@ contract KhoopDefi is ReentrancyGuard {
     uint256 private constant ENTRY_COST = 15e18;
     uint256 private constant CYCLE_PAYOUT = 5e18;
     uint256 private constant MAX_CYCLES_PER_ENTRY = 4;
+    uint256 private constant LAST_CYCLE = 4; // Cycle 4 = no bonuses
     uint256 private constant MAX_ENTRIES_PER_TX = 20;
     uint256 private constant REFERRER_ENTRY_BONUS = 1e18;
     uint256 private constant COOLDOWN_PERIOD = 30 minutes;
@@ -107,6 +109,7 @@ contract KhoopDefi is ReentrancyGuard {
     event TeamSharesDistributed(uint256 totalAmount);
     event CyclesProcessed(uint256 count, uint256 totalPaid);
     event SystemDonation(address indexed donor, uint256 amount);
+    event ReferralBonusSkipped(uint256 indexed entryId, address indexed referrer, string reason);
 
     // ============ Constructor ============
     constructor(
@@ -245,15 +248,14 @@ contract KhoopDefi is ReentrancyGuard {
 
     // ============ Internal Functions ============
 
-    function _payReferralBonus(address referrer, uint256 amount) internal {
-        users[referrer].referrerBonusEarned += amount;
-        globalStats.totalReferrerBonusPaid += amount;
-        usdt.safeTransfer(referrer, amount);
-        emit ReferrerBonusPaid(referrer, msg.sender, amount);
-    }
-
+    /**
+     * @notice Creates entry and pays FIRST round of bonuses
+     * @dev Payment 1/4: At purchase time
+     */
     function _createEntry(address user) internal {
         uint256 entryId = nextEntryId;
+
+        // Create the entry
         entries[entryId] = Entry({
             entryId: entryId,
             owner: user,
@@ -265,8 +267,26 @@ contract KhoopDefi is ReentrancyGuard {
 
         userEntries[user].push(entryId);
         entryQueue.push(entryId);
-        emit EntryPurchased(entryId, user, users[user].referrer, ENTRY_COST);
+
+        // Increment slots remaining (4 cycles per entry)
+        globalStats.totalSlotsRemaining += MAX_CYCLES_PER_ENTRY;
+
+        // Payment 1/4: Pay at purchase
+        address userReferrer = users[user].referrer;
+        if (userReferrer != address(0) && users[userReferrer].isActive) {
+            _payReferralBonus(userReferrer, REFERRER_ENTRY_BONUS, user);
+        }
+        _distributeTeamShares();
+
+        emit EntryPurchased(entryId, user, userReferrer, ENTRY_COST);
         nextEntryId++;
+    }
+
+    function _payReferralBonus(address referrer, uint256 amount, address referred) internal {
+        users[referrer].referrerBonusEarned += amount;
+        globalStats.totalReferrerBonusPaid += amount;
+        usdt.safeTransfer(referrer, amount);
+        emit ReferrerBonusPaid(referrer, referred, amount);
     }
 
     function _distributeTeamShares() internal {
@@ -290,15 +310,14 @@ contract KhoopDefi is ReentrancyGuard {
     }
 
     /**
-     * @notice Process cycles sequentially - STRICT FIFO
-     * @dev Must complete slots in exact order, cannot skip
+     * @notice Process cycles with conditional bonuses
+     * @dev Payments 2,3,4 happen during cycles 1,2,3 (NOT cycle 4)
      */
     function _processAvailableCycles() internal returns (uint256 totalCyclesProcessed) {
         if (entryQueue.length == 0) return 0;
 
         uint256 balance = usdt.balanceOf(address(this));
         uint256 minGas = 50_000;
-        uint256 processed = 0;
         uint256 startIndex = nextEntryIndex;
         uint256 totalEntries = entryQueue.length;
         uint256 maxConsecutiveSkips = entryQueue.length;
@@ -311,26 +330,36 @@ contract KhoopDefi is ReentrancyGuard {
             Entry storage entry = entries[entryId];
 
             if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
-                // Check for active referrer
+                // Determine if this is the last cycle (cycle 4)
+                bool isLastCycle = (entry.cyclesCompleted + 1 == LAST_CYCLE);
+
+                // Check for active referrer (only if NOT last cycle)
                 address userReferrer = users[entry.owner].referrer;
-                bool hasActiveReferrer = (userReferrer != address(0) && users[userReferrer].isActive);
+                bool shouldPayReferrer = !isLastCycle && userReferrer != address(0) && users[userReferrer].isActive;
 
-                // Calculate required balance for this specific entry
-                uint256 requiredBalance = CYCLE_PAYOUT + TOTAL_TEAM_SHARE;
-                if (hasActiveReferrer) {
-                    requiredBalance += REFERRER_ENTRY_BONUS;
-                }
+                // Team gets paid only if NOT last cycle
+                bool shouldPayTeam = !isLastCycle;
 
-                // Revert if we can't pay for this entry
+                // Calculate required balance
+                uint256 requiredBalance = CYCLE_PAYOUT;
+                if (shouldPayReferrer) requiredBalance += REFERRER_ENTRY_BONUS;
+                if (shouldPayTeam) requiredBalance += TOTAL_TEAM_SHARE;
+
+                // Break if insufficient balance
                 if (balance < requiredBalance) {
                     break;
                 }
 
-                // Process the payment
-                _distributeTeamShares();
+                // Pay team shares for cycles 1, 2, 3 (payments 2/4, 3/4, 4/4)
+                if (shouldPayTeam) {
+                    _distributeTeamShares();
+                }
 
-                if (hasActiveReferrer) {
-                    _payReferralBonus(userReferrer, REFERRER_ENTRY_BONUS);
+                // Pay referral bonus for cycles 1, 2, 3 (payments 2/4, 3/4, 4/4)
+                if (shouldPayReferrer) {
+                    _payReferralBonus(userReferrer, REFERRER_ENTRY_BONUS, entry.owner);
+                } else if (!isLastCycle && userReferrer != address(0) && !users[userReferrer].isActive) {
+                    emit ReferralBonusSkipped(entryId, userReferrer, "Referrer inactive");
                 }
 
                 // Update entry and user stats
@@ -340,6 +369,7 @@ contract KhoopDefi is ReentrancyGuard {
                 users[entry.owner].totalEarnings += CYCLE_PAYOUT;
                 globalStats.totalCyclesCompleted++;
                 globalStats.totalPayoutsMade += CYCLE_PAYOUT;
+                globalStats.totalSlotsRemaining--;
 
                 // Transfer to user
                 usdt.safeTransfer(entry.owner, CYCLE_PAYOUT);
@@ -358,12 +388,10 @@ contract KhoopDefi is ReentrancyGuard {
             }
 
             nextEntryIndex = (nextEntryIndex + 1) % totalEntries;
-            processed++;
 
             if (nextEntryIndex == startIndex) {
                 if (totalCyclesProcessed == 0) break;
                 startIndex = nextEntryIndex;
-                processed = 0;
             }
         }
 
@@ -374,7 +402,6 @@ contract KhoopDefi is ReentrancyGuard {
         return totalCyclesProcessed;
     }
 
-    ///@dev Helper function to check if user has pending cycles
     function _hasPendingCycles(address user) internal view returns (bool) {
         uint256[] storage userSlots = userEntries[user];
 
@@ -388,7 +415,6 @@ contract KhoopDefi is ReentrancyGuard {
         return false;
     }
 
-    ///@dev Internal function to update user active status
     function _updateUserActiveStatus(address user) internal {
         bool hasActiveEntries = false;
         uint256[] storage userEntryIds = userEntries[user];
@@ -444,7 +470,6 @@ contract KhoopDefi is ReentrancyGuard {
         uint256 totalEntries = entryQueue.length;
         if (totalEntries == 0) return (0, address(0), 0, 0, false);
 
-        // Check the current next entry first (most likely to be eligible)
         uint256 currentId = entryQueue[nextEntryIndex];
         Entry storage entry = entries[currentId];
 
@@ -454,7 +479,6 @@ contract KhoopDefi is ReentrancyGuard {
             );
         }
 
-        // If current next isn't eligible, do a full search but track the next valid index
         uint256 nextValidIndex = (nextEntryIndex + 1) % totalEntries;
         for (uint256 i = 0; i < totalEntries; i++) {
             currentId = entryQueue[nextValidIndex];
@@ -477,16 +501,7 @@ contract KhoopDefi is ReentrancyGuard {
     }
 
     function getPendingCyclesCount() external view returns (uint256 totalPendingCycles) {
-        uint256 queueLength = entryQueue.length;
-
-        for (uint256 i = 0; i < queueLength; i++) {
-            Entry storage entry = entries[entryQueue[i]];
-            if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
-                totalPendingCycles += MAX_CYCLES_PER_ENTRY - entry.cyclesCompleted;
-            }
-        }
-
-        return totalPendingCycles;
+        return globalStats.totalSlotsRemaining;
     }
 
     function getEntryDetails(uint256 entryId)
@@ -546,7 +561,8 @@ contract KhoopDefi is ReentrancyGuard {
             uint256 totalEntriesPurchased,
             uint256 totalReferrerBonusPaid,
             uint256 totalPayoutsMade,
-            uint256 totalCyclesCompleted
+            uint256 totalCyclesCompleted,
+            uint256 totalSlotsRemaining
         )
     {
         return (
@@ -555,7 +571,8 @@ contract KhoopDefi is ReentrancyGuard {
             globalStats.totalEntriesPurchased,
             globalStats.totalReferrerBonusPaid,
             globalStats.totalPayoutsMade,
-            globalStats.totalCyclesCompleted
+            globalStats.totalCyclesCompleted,
+            globalStats.totalSlotsRemaining
         );
     }
 
