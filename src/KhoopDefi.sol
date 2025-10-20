@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.20;
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -10,7 +11,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  * @notice Referral & team earn: 1x at purchase + cycles 1,2,3 (NOT cycle 4)
  * @dev Total 4 payments per slot: purchase + first 3 cycles only
  */
-contract KhoopDefi is ReentrancyGuard {
+contract KhoopDefi is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ============ Errors ============
@@ -34,6 +35,7 @@ contract KhoopDefi is ReentrancyGuard {
         uint256 totalEntriesPurchased;
         uint256 totalCyclesCompleted;
         uint256 referrerBonusEarned;
+        uint256 referrerBonusMissed;
         uint256 totalEarnings;
         uint256 totalReferrals;
         uint256 cooldownEnd;
@@ -55,9 +57,10 @@ contract KhoopDefi is ReentrancyGuard {
         uint256 totalActiveUsers;
         uint256 totalEntriesPurchased;
         uint256 totalReferrerBonusPaid;
+        uint256 totalReferrerBonusMissed;
         uint256 totalPayoutsMade;
         uint256 totalCyclesCompleted;
-        uint256 totalSlotsRemaining; // Track remaining slots for donations
+        uint256 totalSlotsRemaining;
     }
 
     // ============ Constants ============
@@ -67,7 +70,7 @@ contract KhoopDefi is ReentrancyGuard {
     uint256 private constant ENTRY_COST = 15e18;
     uint256 private constant CYCLE_PAYOUT = 5e18;
     uint256 private constant MAX_CYCLES_PER_ENTRY = 4;
-    uint256 private constant LAST_CYCLE = 4; // Cycle 4 = no bonuses
+    uint256 private constant LAST_CYCLE = 4;
     uint256 private constant MAX_ENTRIES_PER_TX = 20;
     uint256 private constant REFERRER_ENTRY_BONUS = 1e18;
     uint256 private constant COOLDOWN_PERIOD = 30 minutes;
@@ -109,7 +112,8 @@ contract KhoopDefi is ReentrancyGuard {
     event TeamSharesDistributed(uint256 totalAmount);
     event CyclesProcessed(uint256 count, uint256 totalPaid);
     event SystemDonation(address indexed donor, uint256 amount);
-    event ReferralBonusSkipped(uint256 indexed entryId, address indexed referrer, string reason);
+    event EmergencyWithdraw(address indexed donor, uint256 amount);
+    event ReferralBonusSkipped(uint256 indexed entryId, address indexed referrer);
 
     // ============ Constructor ============
     constructor(
@@ -118,7 +122,7 @@ contract KhoopDefi is ReentrancyGuard {
         address _reserve,
         address _powerCycle,
         address _usdt
-    ) {
+    ) Ownable(msg.sender) {
         if (_reserve == address(0) || _powerCycle == address(0) || _usdt == address(0)) {
             revert KhoopDefi__ZeroAddress();
         }
@@ -142,6 +146,7 @@ contract KhoopDefi is ReentrancyGuard {
             totalEntriesPurchased: 0,
             totalCyclesCompleted: 0,
             referrerBonusEarned: 0,
+            referrerBonusMissed: 0,
             totalEarnings: 0,
             totalReferrals: 0,
             cooldownEnd: 0,
@@ -167,6 +172,7 @@ contract KhoopDefi is ReentrancyGuard {
             totalEntriesPurchased: 0,
             totalCyclesCompleted: 0,
             referrerBonusEarned: 0,
+            referrerBonusMissed: 0,
             totalEarnings: 0,
             totalReferrals: 0,
             cooldownEnd: 0,
@@ -199,12 +205,22 @@ contract KhoopDefi is ReentrancyGuard {
         uint256 startId = nextEntryId;
 
         usdt.safeTransferFrom(msg.sender, address(this), totalCost);
+        bool userReferrerIsActive = users[msg.sender].isActive;
 
+        // FIXED: Proper loop with closing brace
         for (uint256 i = 0; i < numEntries; i++) {
             _createEntry(msg.sender);
+
+            // Check for missed initial referral bonus
+            address userReferrer = users[msg.sender].referrer;
+            if (userReferrer != address(0) && !userReferrerIsActive) {
+                users[userReferrer].referrerBonusMissed += REFERRER_ENTRY_BONUS;
+                globalStats.totalReferrerBonusMissed += REFERRER_ENTRY_BONUS;
+                emit ReferralBonusSkipped(nextEntryId - 1, userReferrer);
+            }
         }
 
-        if (!users[msg.sender].isActive) {
+        if (!userReferrerIsActive) {
             _updateUserActiveStatus(msg.sender);
         }
         users[msg.sender].totalEntriesPurchased += numEntries;
@@ -246,16 +262,19 @@ contract KhoopDefi is ReentrancyGuard {
         _processAvailableCycles();
     }
 
+    function emergencyWithdraw(uint256 amount) external nonReentrant onlyOwner {
+        if (amount == 0) revert KhoopDefi__InvalidAmount();
+        if (usdt.balanceOf(address(this)) < amount) revert KhoopDefi__InsufficientBalance();
+
+        usdt.safeTransfer(msg.sender, amount);
+        emit EmergencyWithdraw(msg.sender, amount);
+    }
+
     // ============ Internal Functions ============
 
-    /**
-     * @notice Creates entry and pays FIRST round of bonuses
-     * @dev Payment 1/4: At purchase time
-     */
     function _createEntry(address user) internal {
         uint256 entryId = nextEntryId;
 
-        // Create the entry
         entries[entryId] = Entry({
             entryId: entryId,
             owner: user,
@@ -268,10 +287,8 @@ contract KhoopDefi is ReentrancyGuard {
         userEntries[user].push(entryId);
         entryQueue.push(entryId);
 
-        // Increment slots remaining (4 cycles per entry)
         globalStats.totalSlotsRemaining += MAX_CYCLES_PER_ENTRY;
 
-        // Payment 1/4: Pay at purchase
         address userReferrer = users[user].referrer;
         if (userReferrer != address(0) && users[userReferrer].isActive) {
             _payReferralBonus(userReferrer, REFERRER_ENTRY_BONUS, user);
@@ -309,10 +326,6 @@ contract KhoopDefi is ReentrancyGuard {
         emit TeamSharesDistributed(totalDistributed);
     }
 
-    /**
-     * @notice Process cycles with conditional bonuses
-     * @dev Payments 2,3,4 happen during cycles 1,2,3 (NOT cycle 4)
-     */
     function _processAvailableCycles() internal returns (uint256 totalCyclesProcessed) {
         if (entryQueue.length == 0) return 0;
 
@@ -324,45 +337,39 @@ contract KhoopDefi is ReentrancyGuard {
         uint256 consecutiveSkips = 0;
 
         while (consecutiveSkips < maxConsecutiveSkips) {
-            if (gasleft() < minGas) revert KhoopDefi__GasLimitReached();
+            if (gasleft() < minGas) break;
 
             uint256 entryId = entryQueue[nextEntryIndex];
             Entry storage entry = entries[entryId];
 
             if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
-                // Determine if this is the last cycle (cycle 4)
                 bool isLastCycle = (entry.cyclesCompleted + 1 == LAST_CYCLE);
 
-                // Check for active referrer (only if NOT last cycle)
                 address userReferrer = users[entry.owner].referrer;
                 bool shouldPayReferrer = !isLastCycle && userReferrer != address(0) && users[userReferrer].isActive;
 
-                // Team gets paid only if NOT last cycle
                 bool shouldPayTeam = !isLastCycle;
 
-                // Calculate required balance
                 uint256 requiredBalance = CYCLE_PAYOUT;
                 if (shouldPayReferrer) requiredBalance += REFERRER_ENTRY_BONUS;
                 if (shouldPayTeam) requiredBalance += TOTAL_TEAM_SHARE;
 
-                // Break if insufficient balance
                 if (balance < requiredBalance) {
                     break;
                 }
 
-                // Pay team shares for cycles 1, 2, 3 (payments 2/4, 3/4, 4/4)
                 if (shouldPayTeam) {
                     _distributeTeamShares();
                 }
 
-                // Pay referral bonus for cycles 1, 2, 3 (payments 2/4, 3/4, 4/4)
                 if (shouldPayReferrer) {
                     _payReferralBonus(userReferrer, REFERRER_ENTRY_BONUS, entry.owner);
                 } else if (!isLastCycle && userReferrer != address(0) && !users[userReferrer].isActive) {
-                    emit ReferralBonusSkipped(entryId, userReferrer, "Referrer inactive");
+                    users[userReferrer].referrerBonusMissed += REFERRER_ENTRY_BONUS;
+                    globalStats.totalReferrerBonusMissed += REFERRER_ENTRY_BONUS;
+                    emit ReferralBonusSkipped(entryId, userReferrer);
                 }
 
-                // Update entry and user stats
                 entry.cyclesCompleted++;
                 entry.lastCycleTimestamp = block.timestamp;
                 users[entry.owner].totalCyclesCompleted++;
@@ -371,7 +378,6 @@ contract KhoopDefi is ReentrancyGuard {
                 globalStats.totalPayoutsMade += CYCLE_PAYOUT;
                 globalStats.totalSlotsRemaining--;
 
-                // Transfer to user
                 usdt.safeTransfer(entry.owner, CYCLE_PAYOUT);
                 balance -= requiredBalance;
                 totalCyclesProcessed++;
@@ -381,6 +387,7 @@ contract KhoopDefi is ReentrancyGuard {
 
                 if (entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY) {
                     entry.isActive = false;
+                    _updateUserActiveStatus(entry.owner);
                     emit EntryMaxedOut(entryId, entry.owner);
                 }
             } else {
@@ -536,6 +543,7 @@ contract KhoopDefi is ReentrancyGuard {
             uint256 totalEntriesPurchased,
             uint256 totalCyclesCompleted,
             uint256 referrerBonusEarned,
+            uint256 referrerBonusMissed,
             uint256 totalEarnings,
             uint256 totalReferrals,
             bool isActive
@@ -546,6 +554,7 @@ contract KhoopDefi is ReentrancyGuard {
             userStats.totalEntriesPurchased,
             userStats.totalCyclesCompleted,
             userStats.referrerBonusEarned,
+            userStats.referrerBonusMissed,
             userStats.totalEarnings,
             userStats.totalReferrals,
             userStats.isActive
@@ -560,6 +569,7 @@ contract KhoopDefi is ReentrancyGuard {
             uint256 totalActiveUsers,
             uint256 totalEntriesPurchased,
             uint256 totalReferrerBonusPaid,
+            uint256 totalReferrerBonusMissed,
             uint256 totalPayoutsMade,
             uint256 totalCyclesCompleted,
             uint256 totalSlotsRemaining
@@ -570,6 +580,7 @@ contract KhoopDefi is ReentrancyGuard {
             globalStats.totalActiveUsers,
             globalStats.totalEntriesPurchased,
             globalStats.totalReferrerBonusPaid,
+            globalStats.totalReferrerBonusMissed,
             globalStats.totalPayoutsMade,
             globalStats.totalCyclesCompleted,
             globalStats.totalSlotsRemaining

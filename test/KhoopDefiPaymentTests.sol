@@ -50,6 +50,117 @@ contract KhoopDefiPaymentTests is Test {
         usdt.mint(donor, 10000e18);
     }
 
+    function testBuyFiveSlots() public {
+        // Create test users
+        address user1 = makeAddr("user1");
+        address user2 = makeAddr("user2");
+        address user3 = makeAddr("user3");
+        address user4 = makeAddr("user4");
+        address user5 = makeAddr("user5");
+
+        // Register and buy slots for user1 (buys 1)
+        _registerAndBuySlots(user1, powerCycle, 1);
+
+        // User 2 should be reffered by user1
+        vm.warp(block.timestamp + 10 minutes);
+        _registerAndBuySlots(user2, user1, 10);
+
+        // User 3 should be reffered by user2
+        vm.warp(block.timestamp + 10 minutes);
+        _registerAndBuySlots(user3, user2, 16);
+
+        // User 4 should be reffered by user1
+        vm.warp(block.timestamp + 10 minutes);
+        _registerAndBuySlots(user4, user1, 10);
+
+        (
+            uint256 totalUsers,
+            uint256 totalActiveUsers,
+            uint256 totalEntriesPurchased,
+            uint256 totalReferrerBonusPaid,
+            uint256 totalRefferalBonusMissed,
+            uint256 totalEarnings,
+            uint256 totalCyclesCompleted,
+            uint256 totalSlotsRemaining
+        ) = khoopDefi.getGlobalStats();
+        console.log("Total Users", totalUsers);
+        console.log("Total Active Users", totalActiveUsers);
+        console.log("Total Entries Purchased", totalEntriesPurchased);
+        console.log("Total Referrer Bonus Paid", totalReferrerBonusPaid);
+        console.log("Total Referrer Bonus Missed", totalRefferalBonusMissed);
+        console.log("Total Earnings", totalEarnings);
+        console.log("Total Cycles Completed", totalCyclesCompleted);
+        console.log("Total Slots Remaining", totalSlotsRemaining);
+        console.log("Contract Balance", khoopDefi.getContractBalance() / 1e18);
+        console.log("Team Accumulated Balance", khoopDefi.getTeamAccumulatedBalance() / 1e18);
+        vm.startPrank(donor);
+        usdt.approve(address(khoopDefi), 5000e18);
+        khoopDefi.donateToSystem(5000e18);
+        vm.stopPrank();
+
+        // User 5 should be reffered by user1
+        vm.warp(block.timestamp + 10 minutes);
+        _registerAndBuySlots(user5, user1, 20);
+        (,,, uint256 refferalBonusMisseds,,,) = khoopDefi.getUserStats(user1);
+        (,,,, uint256 totalRefferalBonusMisseds,,,) = khoopDefi.getGlobalStats();
+        (
+            address owner,
+            uint256 purchaseTimestamp,
+            uint8 cyclesCompleted,
+            uint256 lastCycleTimestamp,
+            bool isActive,
+            uint8 cycleRemaining
+        ) = khoopDefi.getEntryDetails(1);
+        console.log("Refferal Bonus Missed", refferalBonusMisseds / 1e18);
+        console.log("Total Referrer Bonus Missed", totalRefferalBonusMisseds / 1e18);
+        console.log("Owner", owner);
+        console.log("Purchase Timestamp", purchaseTimestamp);
+        console.log("Cycles Completed", cyclesCompleted);
+        console.log("Last Cycle Timestamp", lastCycleTimestamp);
+        console.log("Cycle Remaining", cycleRemaining);
+        console.log("Active", isActive);
+    }
+
+    function testReferralBonusMissTracking() public {
+        usdt.mint(address(khoopDefi), 100_000e18);
+        address John = makeAddr("John");
+        address Emeka = makeAddr("Emeka");
+
+        _registerAndBuySlots(John, powerCycle, 1);
+        (,,, uint256 totalRefferalBonusPaid1, uint256 totalRefferalBonusMissed1,,,) = khoopDefi.getGlobalStats();
+        console.log("John active status after buying 1 slot is:", khoopDefi.userHasPendingCycles(John));
+        console.log("total referral bonus paid is:", totalRefferalBonusPaid1 / 1e18);
+        console.log("total referral bonus missed is:", totalRefferalBonusMissed1 / 1e18);
+        // Powercycle gets $4 paid in bonus
+        // John is inactive now should missed referral bonus
+        _registerAndBuySlots(Emeka, John, 10);
+        (,,, uint256 refferalBonusMissed,,,) = khoopDefi.getUserStats(John);
+        console.log("John referral bonus missed is:", refferalBonusMissed / 1e18);
+        (,,,, uint256 totalRefferalBonusMissed,,, uint256 slotRemianing) = khoopDefi.getGlobalStats();
+        console.log("Total referral bonus missed is:", totalRefferalBonusMissed / 1e18);
+        console.log("Slot remaining is:", slotRemianing);
+    }
+
+    function _registerAndBuySlots(address user, address referrer, uint256 numSlots) internal {
+        // Fund user
+        usdt.mint(user, 1000e18);
+
+        // Start prank for this user
+        vm.startPrank(user);
+
+        // Register user with powerCycle as referrer
+        khoopDefi.registerUser(user, referrer);
+
+        // Approve KhoopDefi to spend user's USDT
+        usdt.approve(address(khoopDefi), type(uint256).max);
+
+        // Buy slots
+        khoopDefi.purchaseEntries(numSlots);
+
+        // Stop prank
+        vm.stopPrank();
+    }
+
     /// @notice Test 1: Verify payment at purchase (1/4)
     function testPaymentOnPurchase() public {
         // Register sponsor first
@@ -145,8 +256,73 @@ contract KhoopDefiPaymentTests is Test {
         console.log("\n=== Inactive Referrer Test ===");
         console.log("Sponsor is active:", khoopDefi.isUserActive(sponsor));
         console.log("Sponsor earned:", (sponsorBalanceAfter - sponsorBalanceBefore) / 1e18);
+        // (,,, uint256 refferalBonusMissed2,,,) = khoopDefi.getUserStats(sponsor);
+        (
+            uint256 totalUsers,
+            uint256 totalActiveUsers,
+            uint256 totalEntriesPurchased,
+            uint256 totalReferrerBonusPaid,
+            uint256 totalRefferalBonusMissed,
+            uint256 totalEarnings,
+            uint256 totalCyclesCompleted,
+            uint256 totalSlotsRemaining
+        ) = khoopDefi.getGlobalStats();
+        console.log("Total Referrer Bonus Missed", totalRefferalBonusMissed / 1e18);
+        console.log("Total Users", totalUsers);
+        console.log("Total Active Users", totalActiveUsers);
+        console.log("Total Entries Purchased", totalEntriesPurchased);
+        console.log("Total Referrer Bonus Paid", totalReferrerBonusPaid);
+        console.log("Total Earnings", totalEarnings);
+        console.log("Total Cycles Completed", totalCyclesCompleted);
+        console.log("Total Slots Remaining", totalSlotsRemaining);
 
         assertEq(sponsorBalanceAfter, sponsorBalanceBefore, "Inactive sponsor should earn nothing");
+
+        // Okay let sponspor be atice buy slots and get in active again
+        vm.startPrank(sponsor);
+        usdt.approve(address(khoopDefi), type(uint256).max);
+        khoopDefi.purchaseEntries(1);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 31 minutes);
+        vm.startPrank(buyer);
+        usdt.approve(address(khoopDefi), type(uint256).max);
+        khoopDefi.purchaseEntries(1);
+        vm.stopPrank();
+
+        vm.startPrank(donor);
+        usdt.approve(address(khoopDefi), type(uint256).max);
+        khoopDefi.donateToSystem(1000e18);
+        vm.stopPrank();
+
+        uint256 sponsorBalanceAfter2 = usdt.balanceOf(sponsor);
+
+        console.log("\n=== Active Referrer Test ===");
+        console.log("Sponsor is active:", khoopDefi.isUserActive(sponsor));
+        console.log("Sponsor earned:", (sponsorBalanceAfter2 - sponsorBalanceAfter) / 1e18);
+        (uint256 totalEntryPurchased, uint256 totalCyclesCompleteddd,, uint256 refferalBonusMissed2,,,) =
+            khoopDefi.getUserStats(sponsor);
+        (
+            uint256 totalUsers2,
+            uint256 totalActiveUsers2,
+            uint256 totalEntriesPurchased2,
+            uint256 totalReferrerBonusPaid2,
+            uint256 totalRefferalBonusMissed2,
+            uint256 totalEarnings2,
+            uint256 totalCyclesCompleted2,
+            uint256 totalSlotsRemaining2
+        ) = khoopDefi.getGlobalStats();
+        console.log("Total Entry purchased", totalEntryPurchased);
+        console.log("Refferal Bonus Missed", refferalBonusMissed2 / 1e18);
+        console.log("Total Cycles Completed", totalCyclesCompleteddd / 1e18);
+        console.log("Total Referrer Bonus Missed", totalRefferalBonusMissed2 / 1e18);
+        console.log("Total Users", totalUsers2);
+        console.log("Total Active Users", totalActiveUsers2);
+        console.log("Total Entries Purchased", totalEntriesPurchased2);
+        console.log("Total Referrer Bonus Paid", totalReferrerBonusPaid2);
+        console.log("Total Earnings", totalEarnings2);
+        console.log("Total Cycles Completed", totalCyclesCompleted2);
+        console.log("Total Slots Remaining", totalSlotsRemaining2);
     }
 
     /// @notice Test 4: Verify total payments = 4 per slot
@@ -184,7 +360,7 @@ contract KhoopDefiPaymentTests is Test {
         assertEq(totalSponsorEarnings, 4 * REFERRER_BONUS, "Sponsor should earn exactly 4x referral bonus");
 
         // Verify user stats
-        (,, uint256 referrerBonusEarned,,,) = khoopDefi.getUserStats(sponsor);
+        (,, uint256 referrerBonusEarned,,,,) = khoopDefi.getUserStats(sponsor);
         assertEq(referrerBonusEarned, 4 * REFERRER_BONUS, "User stats should show 4 bonuses");
     }
 

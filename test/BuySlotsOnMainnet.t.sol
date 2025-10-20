@@ -87,12 +87,12 @@ contract BuySlotsOnMainnetTest is Test {
         console.log("Remaining USDT balance:", finalBalance / 1e18, "USDT");
 
         // Verify the purchase was successful by checking the user's entry count
-        (uint256 totalUsers,, uint256 totalEntries,,,,) = khoopDefi.getGlobalStats();
+        (uint256 totalUsers,, uint256 totalEntries,,,,,) = khoopDefi.getGlobalStats();
         console.log("Total users:", totalUsers);
         console.log("Total entries purchased:", totalEntries);
 
         // Get the user's entry count
-        (, uint256 entriesPurchased,,,,,,,) = khoopDefi.users(TEST_WALLET); // Removed unused 'referrer' variable
+        (, uint256 entriesPurchased,,,,,,,,) = khoopDefi.users(TEST_WALLET); // Removed unused 'referrer' variable
         console.log("User's total entries:", entriesPurchased);
 
         // Log the last few entry details (up to 5 to avoid too much output)
