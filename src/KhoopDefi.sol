@@ -205,22 +205,23 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
         uint256 startId = nextEntryId;
 
         usdt.safeTransferFrom(msg.sender, address(this), totalCost);
-        bool userReferrerIsActive = users[msg.sender].isActive;
+        // Get the referrer's address once
+        address userReferrer = users[msg.sender].referrer;
+        bool isReferrerActive = (userReferrer != address(0)) && users[userReferrer].isActive;
 
-        // FIXED: Proper loop with closing brace
+        // Create all entries first
         for (uint256 i = 0; i < numEntries; i++) {
             _createEntry(msg.sender);
 
             // Check for missed initial referral bonus
-            address userReferrer = users[msg.sender].referrer;
-            if (userReferrer != address(0) && !userReferrerIsActive) {
+            if (userReferrer != address(0) && !isReferrerActive) {
                 users[userReferrer].referrerBonusMissed += REFERRER_ENTRY_BONUS;
                 globalStats.totalReferrerBonusMissed += REFERRER_ENTRY_BONUS;
                 emit ReferralBonusSkipped(nextEntryId - 1, userReferrer);
             }
         }
 
-        if (!userReferrerIsActive) {
+        if (!users[msg.sender].isActive) {
             _updateUserActiveStatus(msg.sender);
         }
         users[msg.sender].totalEntriesPurchased += numEntries;
