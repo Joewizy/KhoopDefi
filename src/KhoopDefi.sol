@@ -27,7 +27,7 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
     error KhoopDefi__UserAlreadyRegistered();
     error KhoopDefi__NoActiveCycles();
     error KhoopDefi__InvalidAmount();
-    error KhoopDefi__GasLimitReached();
+    error KhoopDefi__CannotRegisterForAnotherUser();
 
     // ============ Types ============
     struct User {
@@ -64,6 +64,9 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
     }
 
     // ============ Constants ============
+    uint256 private constant GAS_BUFFER = 120_000;
+    uint256 private constant MAX_GAS_PER_ITERATION = 700_000;
+    uint256 private constant MAX_ITERATIONS_PER_CALL = 50;
     uint256 private constant CORE_TEAM_SHARE = 15e16;
     uint256 private constant INVESTORS_SHARE = 2e16;
     uint256 private constant CONTINGENCY_SHARE = 1e17;
@@ -99,6 +102,7 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
     GlobalStats public globalStats;
     uint256 public nextEntryId = 1;
     uint256 private teamAccumulatedBalance;
+    uint256 private accumulatedCoolDownFee;
 
     // ============ Events ============
     event EntryPurchased(uint256 indexed entryId, address indexed user, address indexed referrer, uint256 amount);
@@ -161,6 +165,7 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
     // ============ External Functions ============
 
     function registerUser(address user, address referrer) external {
+        if (user != msg.sender) revert KhoopDefi__CannotRegisterForAnotherUser();
         if (user == referrer) revert KhoopDefi__SelfReferral();
         if (users[user].isRegistered) revert KhoopDefi__UserAlreadyRegistered();
         if (referrer != address(0) && !users[referrer].isRegistered) {
@@ -205,11 +210,10 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
         uint256 startId = nextEntryId;
 
         usdt.safeTransferFrom(msg.sender, address(this), totalCost);
-        // Get the referrer's address once
+
         address userReferrer = users[msg.sender].referrer;
         bool isReferrerActive = (userReferrer != address(0)) && users[userReferrer].isActive;
 
-        // Create all entries first
         for (uint256 i = 0; i < numEntries; i++) {
             _createEntry(msg.sender);
 
@@ -241,12 +245,11 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
         if (usdt.balanceOf(msg.sender) < COOLDOWN_FEE) revert KhoopDefi__InsufficientBalance();
 
         usdt.safeTransferFrom(msg.sender, address(this), COOLDOWN_FEE);
-
+        accumulatedCoolDownFee += COOLDOWN_FEE;
         uint256 newCooldownEnd = block.timestamp + REDUCED_COOLDOWN;
         user.cooldownEnd = newCooldownEnd >= user.cooldownEnd ? block.timestamp : newCooldownEnd;
 
         emit CooldownReduced(msg.sender, COOLDOWN_FEE);
-        _processAvailableCycles();
     }
 
     function completeCycles() external nonReentrant {
@@ -261,6 +264,16 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
         usdt.safeTransferFrom(msg.sender, address(this), amount);
         emit SystemDonation(msg.sender, amount);
         _processAvailableCycles();
+    }
+
+    function processCyclesBatch(uint256 iterations) external nonReentrant returns (uint256) {
+        uint256 processed = _processCyclesManual(iterations);
+
+        if (processed > 0) {
+            emit CyclesProcessed(processed, processed * CYCLE_PAYOUT);
+        }
+
+        return processed;
     }
 
     function emergencyWithdraw(uint256 amount) external nonReentrant onlyOwner {
@@ -332,14 +345,17 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
 
         uint256 balance = usdt.balanceOf(address(this));
         uint256 minGas = 50_000;
-        uint256 startIndex = nextEntryIndex;
         uint256 totalEntries = entryQueue.length;
-        uint256 maxConsecutiveSkips = entryQueue.length;
-        uint256 consecutiveSkips = 0;
+        uint256 startGas = gasleft();
 
-        while (consecutiveSkips < maxConsecutiveSkips) {
-            if (gasleft() < minGas) break;
+        uint256 maxIterations = (startGas - GAS_BUFFER) / MAX_GAS_PER_ITERATION;
+        if (maxIterations > MAX_ITERATIONS_PER_CALL) {
+            maxIterations = MAX_ITERATIONS_PER_CALL;
+        }
 
+        uint256 iterations = 0;
+
+        while (iterations < maxIterations && gasleft() > GAS_BUFFER) {
             uint256 entryId = entryQueue[nextEntryIndex];
             Entry storage entry = entries[entryId];
 
@@ -362,7 +378,81 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
                 if (shouldPayTeam) {
                     _distributeTeamShares();
                 }
+                if (shouldPayReferrer) {
+                    _payReferralBonus(userReferrer, REFERRER_ENTRY_BONUS, entry.owner);
+                } else if (!isLastCycle && userReferrer != address(0) && !users[userReferrer].isActive) {
+                    users[userReferrer].referrerBonusMissed += REFERRER_ENTRY_BONUS;
+                    globalStats.totalReferrerBonusMissed += REFERRER_ENTRY_BONUS;
+                    emit ReferralBonusSkipped(entryId, userReferrer);
+                }
 
+                // Update entry and user stats
+                entry.cyclesCompleted++;
+                entry.lastCycleTimestamp = block.timestamp;
+                users[entry.owner].totalCyclesCompleted++;
+                users[entry.owner].totalEarnings += CYCLE_PAYOUT;
+                globalStats.totalCyclesCompleted++;
+                globalStats.totalPayoutsMade += CYCLE_PAYOUT;
+                globalStats.totalSlotsRemaining--;
+
+                // Pay cycle payout to entry owner
+                usdt.safeTransfer(entry.owner, CYCLE_PAYOUT);
+                balance -= requiredBalance;
+                totalCyclesProcessed++;
+
+                emit CycleCompleted(entryId, entry.owner, entry.cyclesCompleted, CYCLE_PAYOUT);
+
+                // Check if entry completed all cycles
+                if (entry.cyclesCompleted >= MAX_CYCLES_PER_ENTRY) {
+                    entry.isActive = false;
+                    _updateUserActiveStatus(entry.owner);
+                    emit EntryMaxedOut(entryId, entry.owner);
+                }
+            }
+
+            // Move to next entry in queue (circular)
+            nextEntryIndex = (nextEntryIndex + 1) % totalEntries;
+            iterations++;
+        }
+
+        if (totalCyclesProcessed > 0) {
+            emit CyclesProcessed(totalCyclesProcessed, totalCyclesProcessed * CYCLE_PAYOUT);
+        }
+
+        return totalCyclesProcessed;
+    }
+
+    function _processCyclesManual(uint256 maxIterations) internal returns (uint256 totalCyclesProcessed) {
+        if (entryQueue.length == 0) return 0;
+
+        uint256 balance = usdt.balanceOf(address(this));
+        uint256 minGas = 50_000;
+        uint256 totalEntries = entryQueue.length;
+        uint256 iterations = 0;
+
+        while (iterations < maxIterations && gasleft() > minGas) {
+            uint256 entryId = entryQueue[nextEntryIndex];
+            Entry storage entry = entries[entryId];
+
+            if (entry.isActive && entry.cyclesCompleted < MAX_CYCLES_PER_ENTRY) {
+                bool isLastCycle = (entry.cyclesCompleted + 1 == LAST_CYCLE);
+
+                address userReferrer = users[entry.owner].referrer;
+                bool shouldPayReferrer = !isLastCycle && userReferrer != address(0) && users[userReferrer].isActive;
+
+                bool shouldPayTeam = !isLastCycle;
+
+                uint256 requiredBalance = CYCLE_PAYOUT;
+                if (shouldPayReferrer) requiredBalance += REFERRER_ENTRY_BONUS;
+                if (shouldPayTeam) requiredBalance += TOTAL_TEAM_SHARE;
+
+                if (balance < requiredBalance) {
+                    break;
+                }
+
+                if (shouldPayTeam) {
+                    _distributeTeamShares();
+                }
                 if (shouldPayReferrer) {
                     _payReferralBonus(userReferrer, REFERRER_ENTRY_BONUS, entry.owner);
                 } else if (!isLastCycle && userReferrer != address(0) && !users[userReferrer].isActive) {
@@ -382,7 +472,6 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
                 usdt.safeTransfer(entry.owner, CYCLE_PAYOUT);
                 balance -= requiredBalance;
                 totalCyclesProcessed++;
-                consecutiveSkips = 0;
 
                 emit CycleCompleted(entryId, entry.owner, entry.cyclesCompleted, CYCLE_PAYOUT);
 
@@ -391,20 +480,10 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
                     _updateUserActiveStatus(entry.owner);
                     emit EntryMaxedOut(entryId, entry.owner);
                 }
-            } else {
-                consecutiveSkips++;
             }
 
             nextEntryIndex = (nextEntryIndex + 1) % totalEntries;
-
-            if (nextEntryIndex == startIndex) {
-                if (totalCyclesProcessed == 0) break;
-                startIndex = nextEntryIndex;
-            }
-        }
-
-        if (totalCyclesProcessed > 0) {
-            emit CyclesProcessed(totalCyclesProcessed, totalCyclesProcessed * CYCLE_PAYOUT);
+            iterations++;
         }
 
         return totalCyclesProcessed;
@@ -468,6 +547,18 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
             return 0;
         }
         return users[user].cooldownEnd - block.timestamp;
+    }
+
+    function getAccumulatedCoolDownFee() external view returns (uint256) {
+        return accumulatedCoolDownFee;
+    }
+
+    function userHasPendingCycles(address user) external view returns (bool) {
+        return _hasPendingCycles(user);
+    }
+
+    function getQueueLength() external view returns (uint256) {
+        return entryQueue.length;
     }
 
     function getNextInLine()
@@ -644,9 +735,5 @@ contract KhoopDefi is Ownable, ReentrancyGuard {
         }
 
         return inactiveReferrals;
-    }
-
-    function userHasPendingCycles(address user) external view returns (bool) {
-        return _hasPendingCycles(user);
     }
 }

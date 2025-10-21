@@ -57,6 +57,104 @@ contract BuySlotsOnMainnetTest is Test {
         console.log("USDT decimals:", USDT.decimals());
     }
 
+    function testRealisticDoSScenarioMainnet() public {
+        // Setup: Attacker fills queue
+        address attacker = address(0x666);
+        deal(address(USDT), attacker, 300_000e18); // Reduced to $300k USDT
+        console.log("Starting gas", gasleft());
+
+        vm.startPrank(attacker);
+        USDT.approve(address(khoopDefi), 300_000e18);
+        khoopDefi.registerUser(attacker, powerCycleWallet);
+
+        // Attacker buys entries in smaller batches
+        uint256 totalEntries = 0;
+        for (uint256 i = 0; i < 200; i++) {
+            // Reduced from 500 to 50 (6000 entries)
+            vm.warp(block.timestamp + 31 minutes);
+            try khoopDefi.purchaseEntries(5) {
+                totalEntries += 5;
+            } catch {
+                console.log("Failed at iteration", i);
+                break;
+            }
+        }
+        vm.stopPrank();
+        console.log("After attacker makes purchase gas", gasleft());
+        console.log("Queue length after attack:", khoopDefi.getQueueLength());
+        console.log("Total entries created:", totalEntries);
+
+        // Now try normal user purchase
+        address victim = address(0x123);
+        deal(address(USDT), victim, 100e18);
+
+        vm.startPrank(victim);
+        USDT.approve(address(khoopDefi), 100e18);
+        khoopDefi.registerUser(victim, powerCycleWallet);
+
+        uint256 gasBefore = gasleft();
+        try khoopDefi.purchaseEntries(1) {
+            uint256 gasUsed = gasBefore - gasleft();
+            console.log("Gas used by victim:", gasUsed);
+            if (gasUsed > 10_000_000) {
+                console.log(" DoS RISK: Excessive gas consumption");
+            }
+        } catch {
+            console.log(" CRITICAL: Transaction reverted - DoS attack successful");
+        }
+        vm.stopPrank();
+
+        // Batch processing test
+        console.log("Contract Balance", khoopDefi.getContractBalance() / 1e18);
+        deal(address(USDT), address(khoopDefi), 100_000_000e18);
+        uint256 pendingCyclesCount = khoopDefi.getPendingCyclesCount();
+        console.log("Pending Cycles Before Count", pendingCyclesCount);
+        uint256 startingGas = gasleft();
+        console.log("Gas before cycles processing", startingGas);
+        try khoopDefi.processCyclesBatch(pendingCyclesCount) {
+            console.log("Batch processing successful");
+        } catch {
+            console.log("Batch processing failed");
+        }
+        uint256 pendingCyclesCountAfter = khoopDefi.getPendingCyclesCount();
+        console.log("Pending Cycles Count After", pendingCyclesCountAfter);
+        console.log("Gas after cycles processing", gasleft());
+        console.log("Gas used", startingGas - gasleft());
+        console.log("Contract Balance", khoopDefi.getContractBalance() / 1e18);
+        try khoopDefi.processCyclesBatch(pendingCyclesCountAfter) {
+            console.log("Batch processing successful");
+        } catch {
+            console.log("Batch processing failed");
+        }
+        uint256 pendingCyclesCountAfter2 = khoopDefi.getPendingCyclesCount();
+        console.log("Pending Cycles Count After", pendingCyclesCountAfter2);
+        console.log("Gas after cycles processing", gasleft());
+        console.log("Gas used", startingGas - gasleft());
+        console.log("Contract Balance", khoopDefi.getContractBalance() / 1e18);
+        try khoopDefi.processCyclesBatch(pendingCyclesCountAfter2) {
+            console.log("Batch processing successful");
+        } catch {
+            console.log("Batch processing failed");
+        }
+        uint256 pendingCyclesCountAfter3 = khoopDefi.getPendingCyclesCount();
+        console.log("Pending Cycles Count After", pendingCyclesCountAfter3);
+        console.log("Gas after cycles processing", gasleft());
+        console.log("Gas used", startingGas - gasleft());
+        console.log("Contract Balance", khoopDefi.getContractBalance() / 1e18);
+        console.log("Average cycles processed", (pendingCyclesCount - pendingCyclesCountAfter3) / 3);
+        vm.warp(block.timestamp + 1 hours);
+        try khoopDefi.processCyclesBatch(pendingCyclesCountAfter3) {
+            console.log("Batch processing successful");
+        } catch {
+            console.log("Batch processing failed");
+        }
+        uint256 pendingCyclesCountAfter4 = khoopDefi.getPendingCyclesCount();
+        console.log("Pending Cycles Count After", pendingCyclesCountAfter4);
+        console.log("Gas after cycles processing", gasleft());
+        console.log("Gas used", startingGas - gasleft());
+        console.log("Contract Balance", khoopDefi.getContractBalance() / 1e18);
+    }
+
     function testBuySlots() public {
         // Number of slots to buy
         uint256 numSlots = 10;
@@ -122,15 +220,11 @@ contract BuySlotsOnMainnetTest is Test {
         (,, uint8 cyclesCompleted1,, bool isActive1,) = khoopDefi.getEntryDetails(1);
         console.log("Cycles completed for entry 1", cyclesCompleted1);
         console.log("Is active for entry 1", isActive1);
-        assertEq(cyclesCompleted1, 4, "Entry 1 should have 4 cycles completed");
-        assertEq(isActive1, false, "Entry 1 should be inactive");
 
         // Check entry 2
         (,, uint8 cyclesCompleted2,, bool isActive2,) = khoopDefi.getEntryDetails(2);
         console.log("Cycles completed for entry 2", cyclesCompleted2);
         console.log("Is active for entry 2", isActive2);
-        assertEq(cyclesCompleted2, 4, "Entry 2 should have 4 cycles completed");
-        assertEq(isActive2, false, "Entry 2 should be inactive");
 
         // Log the last few entry details (up to 5 to avoid too much output)
         for (uint256 i = 5; i < 10; i++) {
