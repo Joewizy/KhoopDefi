@@ -29,11 +29,12 @@ contract DeployKhoopDefi is Script {
         // Parse additional single addresses
         address reserve = abi.decode(vm.parseJson(json, ".additional.contingency"), (address));
         address powerCycle = abi.decode(vm.parseJson(json, ".additional.PowerLine"), (address));
-        address usdtToken = 0x1648C0B178EEbCb57Aa31E3C62Ee2B52bfD1A123; // bscTestnet
+        address usdtToken = 0x55d398326f99059fF775485246999027B3197955; // bscMainnet
 
         // Deploy with broadcast
         vm.startBroadcast();
         KhoopDefi khoopDefi = new KhoopDefi(coreTeam, investors, reserve, powerCycle, usdtToken);
+        khoopDefi.transferOwnership(0xb2BEBA5dF000334247f71c22D29C41B0676854Bd);
         vm.stopBroadcast();
 
         console.log("KhoopDefi deployed to:", address(khoopDefi));

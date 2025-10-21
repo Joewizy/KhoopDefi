@@ -7,7 +7,8 @@
 4. [User Journey & Earnings](#user-journey--earnings)
 5. [Project Economics](#project-economics)
 6. [Cycle Processing Logic](#cycle-processing-logic)
-7. [Real Test Results](#real-test-results)
+7. [Key Updates & Changes](#key-updates--changes)
+8. [Real Test Results](#real-test-results)
 
 ---
 
@@ -18,9 +19,10 @@ KhoopDefi is a decentralized reward distribution system that operates on a stric
 ### Key Features
 - ✅ **Fair Distribution**: Strict FIFO queue - first in gets paid first
 - ✅ **Automated Processing**: Cycles process automatically when balance is available
-- ✅ **Referral Rewards**: Active referrers earn on every cycle
+- ✅ **Referral Rewards**: Active referrers earn bonuses (with inactivity tracking)
 - ✅ **Transparent**: All distributions tracked on-chain
-- ✅ **Scalable**: Handles unlimited users and entries
+- ✅ **Scalable**: Handles unlimited users and entries with optimized gas usage
+- ✅ **Self-Registration Only**: Users must register themselves (no third-party registration)
 
 ---
 
@@ -39,13 +41,13 @@ User Buys Entry ($15)
     ↓
 Entry Enters Queue
     ↓
-Cycle 1 → User Earns $5
+Cycle 1 → User Earns $5 (Referrer & Team get paid)
     ↓
-Cycle 2 → User Earns $5
+Cycle 2 → User Earns $5 (Referrer & Team get paid)
     ↓
-Cycle 3 → User Earns $5
+Cycle 3 → User Earns $5 (Referrer & Team get paid)
     ↓
-Cycle 4 → User Earns $5
+Cycle 4 → User Earns $5 (NO referrer/team bonus - final cycle)
     ↓
 Entry Complete (Total: $20 earned, $5 profit)
 ```
@@ -58,35 +60,77 @@ Entry Complete (Total: $20 earned, $5 profit)
 
 Your $15 goes into the contract and stays there to fund future cycles. Here's what happens:
 
-#### Per Cycle Distribution (Happens 4 times per entry)
+#### Initial Purchase Distribution
 
-**When YOUR Entry Gets a Cycle:**
+**At Purchase Time (Payment 1/4)**:
+- **Your Referrer**: $1 USDT (if they are ACTIVE)
+- **Team Distribution**: $1 USDT (distributed to project stakeholders)
+- **Missed Tracking**: If referrer is inactive, $1 is tracked as "missed earnings"
+
+#### Per Cycle Distribution (Cycles 1, 2, 3 only)
+
+**When YOUR Entry Completes Cycles 1-3:**
 - **Your Payout**: $5 USDT (goes to you)
-- **Your Referrer Bonus**: $1 USDT (if your referrer is active)
+- **Your Referrer Bonus**: $1 USDT (if your referrer is ACTIVE, else tracked as missed)
 - **Team Distribution**: $1 USDT (distributed to project stakeholders)
 
-**Total Cost per Cycle**: $7 USDT
-- $5 → User
-- $1 → Active Referrer
-- $1 → Team
+**Cycle 4 is Different:**
+- **Your Payout**: $5 USDT (goes to you)
+- **NO Referrer Bonus**: Cycle 4 does not pay referral bonuses
+- **NO Team Distribution**: Cycle 4 does not pay team shares
 
-**Total Needed for Your Entry to Complete**: $28 USDT
-- ($7 per cycle × 4 cycles)
+### Complete Payment Schedule
 
-### Team Distribution Breakdown ($1 per cycle)
+**Per Entry Total (Purchase + 4 Cycles)**:
 
-Every cycle that processes distributes $1 to the project team:
+| Event | User Payout | Referrer Bonus | Team Share | Total |
+|-------|-------------|----------------|------------|-------|
+| Purchase | $0 | $1* | $1 | $2 |
+| Cycle 1 | $5 | $1* | $1 | $7 |
+| Cycle 2 | $5 | $1* | $1 | $7 |
+| Cycle 3 | $5 | $1* | $1 | $7 |
+| Cycle 4 | $5 | $0 | $0 | $5 |
+| **Total** | **$20** | **$4*** | **$4** | **$28** |
 
-| Recipient | Amount | Count | Total per Cycle |
+\* Only paid if referrer is ACTIVE, otherwise tracked as missed earnings
+
+### Team Distribution Breakdown ($1 per payment event)
+
+Every qualifying event (purchase + cycles 1-3) distributes $1 to the project team:
+
+| Recipient | Amount | Count | Total per Event |
 |-----------|--------|-------|-----------------|
 | Core Team Wallets | $0.15 each | 4 wallets | $0.60 |
 | Investor Wallets | $0.02 each | 15 wallets | $0.30 |
 | Reserve Wallet | $0.10 | 1 wallet | $0.10 |
 | **Total** | | | **$1.00** |
 
+**Total Team Earnings per Entry**: $4 (purchase + 3 cycles)
+
 ---
 
 ## 👥 User Journey & Earnings
+
+### Registration Requirements
+
+**NEW: Self-Registration Only**
+- Users MUST register themselves by calling `registerUser(userAddress, referrerAddress)`
+- The `userAddress` parameter MUST equal `msg.sender`
+- Third parties cannot register users on their behalf
+- This prevents unauthorized registration and ensures user consent
+
+### Active vs Inactive Status
+
+**Active User**:
+- Has at least one entry with remaining cycles
+- Earns referral bonuses when their referrals purchase entries or complete cycles
+- Status automatically updates as entries complete
+
+**Inactive User**:
+- Has no entries OR all entries have completed 4 cycles
+- Does NOT earn referral bonuses
+- Referral bonuses are tracked as "missed earnings"
+- Can become active again by purchasing new entries
 
 ### Scenario: You Buy 10 Entries
 
@@ -102,12 +146,12 @@ Every cycle that processes distributes $1 to the project team:
 
 Let's say you referred 5 users, and they each bought 10 entries:
 
-**Referral Bonus Calculation**:
-- Each referral entry completes 4 cycles
-- You earn $1 per cycle (if you're active)
+**Referral Bonus Calculation** (assuming you stay active):
+- Each referral entry: 1 purchase + 3 cycles = 4 payment events
+- You earn $1 per event (if active)
 - Total referral entries: 5 users × 10 entries = 50 entries
-- Total cycles: 50 entries × 4 cycles = 200 cycles
-- **Your Referral Earnings**: 200 cycles × $1 = **$200 USDT**
+- Total payment events: 50 entries × 4 events = 200 events
+- **Your Referral Earnings**: 200 events × $1 = **$200 USDT**
 
 **Your Total Earnings**:
 - Personal cycles: $200
@@ -115,6 +159,8 @@ Let's say you referred 5 users, and they each bought 10 entries:
 - **Total**: $400 USDT
 - **Net Profit**: $250 USDT ($400 - $150 investment)
 - **ROI**: 166.7%
+
+**⚠️ Important**: If you become inactive (all entries complete), you stop earning referral bonuses. Your missed earnings are tracked but not paid.
 
 ---
 
@@ -124,10 +170,11 @@ Let's say you referred 5 users, and they each bought 10 entries:
 
 For the system to function smoothly, the contract needs sufficient balance to process cycles.
 
-**Balance Required per Cycle**: $7 USDT
-- $5 user payout
-- $1 referral bonus (if applicable)
-- $1 team distribution
+**Balance Required per Cycle**:
+- **Cycles 1-3**: $7 USDT ($5 user + $1 referrer + $1 team)
+- **Cycle 4**: $5 USDT ($5 user only)
+
+**Balance Required per Purchase**: $2 USDT ($1 referrer + $1 team)
 
 ### Contract Balance Management
 
@@ -140,54 +187,89 @@ The contract balance fluctuates based on:
 
 **Balance Decreases** ⬇️
 - Cycle payouts ($5 per cycle)
-- Referral bonuses ($1 per cycle, if active referrer)
-- Team distributions ($1 per cycle)
+- Referral bonuses ($1 per event for cycles 1-3 and purchase)
+- Team distributions ($1 per event for cycles 1-3 and purchase)
 
 ### Automatic Processing
 
 The system automatically processes cycles whenever:
-1. Contract balance ≥ $7 USDT
+1. Contract balance is sufficient
 2. Eligible entries exist in queue (not maxed out)
 3. Gas is available
 
-**No manual intervention needed!** The contract processes cycles on:
-- Entry purchases
-- Cooldown reductions
-- System donations
+**Automatic triggers**:
+- Entry purchases (with optimized gas limits)
 - Manual `completeCycles()` call
+- Manual `processCyclesBatch(iterations)` call with custom iteration count
 
 ---
 
 ## 🔄 Cycle Processing Logic
 
-### Hybrid Strict FIFO Model
+### Optimized Gas-Conscious Processing
 
-KhoopDefi uses an intelligent queue system that ensures fairness while maximizing efficiency.
+KhoopDefi uses an intelligent, gas-optimized queue system that ensures fairness while preventing out-of-gas errors.
+
+#### Gas Safety Features
+
+**Three-Layer Protection**:
+1. **Gas Buffer**: Reserves 120,000 gas to prevent OOG errors
+2. **Per-Iteration Limit**: Maximum 700,000 gas per cycle iteration
+3. **Max Iterations**: Caps at 50 iterations per automatic call
+
+**Calculation**:
+```
+maxIterations = min(
+    (startGas - GAS_BUFFER) / MAX_GAS_PER_ITERATION,
+    MAX_ITERATIONS_PER_CALL
+)
+```
 
 #### How It Works
 
 1. **Queue Order**: All entries are processed in the exact order they were purchased
 2. **One Cycle per Round**: Each entry receives only ONE cycle per complete queue loop
-3. **Automatic Continuation**: After completing a full loop, if any cycles were processed, the system automatically starts another round
-4. **Exit Condition**: Processing stops when:
-   - Contract balance < $7 USDT, OR
-   - No eligible entries remain (all maxed out), OR
+3. **Gas-Aware**: Stops processing before running out of gas
+4. **Exit Conditions**:
+   - Contract balance insufficient
    - Gas limit reached
+   - No eligible entries remain (all maxed out)
 
 #### Processing Flow
 
 ```
-Round 1: Process all eligible entries (1 cycle each)
+Calculate Safe Iterations
     ↓
-Check balance ≥ $7?
+Round 1: Process up to maxIterations entries (1 cycle each)
+    ↓
+Check: Balance sufficient AND gas available?
     ↓ YES
-Round 2: Process all eligible entries (1 cycle each)
+Round 2: Process next batch of entries (1 cycle each)
     ↓
-Check balance ≥ $7?
-    ↓ YES
-Round 3: Continue...
-    ↓
-Until: Balance < $7 or all entries maxed out
+Continue until: Balance insufficient OR gas low OR all entries maxed out
+```
+
+### Manual Batch Processing
+
+For fine-grained control, use the manual batch function:
+
+```solidity
+function processCyclesBatch(uint256 iterations) external nonReentrant returns (uint256)
+```
+
+**Use Cases**:
+- Process specific number of cycles
+- Distribute gas usage across multiple transactions
+- Test cycle processing
+- Clear queue in controlled manner
+
+**Example**:
+```javascript
+// Process exactly 100 cycles
+await contract.processCyclesBatch(100);
+
+// Process maximum safe amount automatically
+await contract.completeCycles();
 ```
 
 ### Example: 4 Users, 10 Entries Each
@@ -198,26 +280,72 @@ Until: Balance < $7 or all entries maxed out
 - Total cycles needed: 160
 
 **Processing**:
-- **Round 1**: All 40 entries get cycle 1 (40 cycles processed)
-- **Round 2**: All 40 entries get cycle 2 (40 cycles processed)
-- **Round 3**: All 40 entries get cycle 3 (40 cycles processed)
-- **Round 4**: All 40 entries get cycle 4 (40 cycles processed)
+- **Round 1**: Process up to 50 entries → 40 entries get cycle 1
+- **Round 2**: Process up to 50 entries → 40 entries get cycle 2
+- **Round 3**: Process up to 50 entries → 40 entries get cycle 3
+- **Round 4**: Process up to 50 entries → 40 entries get cycle 4
 
-**Result**: All entries complete in 4 automatic rounds!
+**Result**: All entries complete in 4 automatic rounds (or fewer if gas allows)!
 
-### Why User 1 Finishes First
+---
 
-This is **expected behavior** due to FIFO:
+## 🆕 Key Updates & Changes
 
-- User 1 bought entries first → entries 1-10
-- User 2 bought entries second → entries 11-20
-- User 3 bought entries third → entries 21-30
-- User 4 bought entries fourth → entries 31-40
+### Recent Contract Improvements
 
-**Queue Position Matters**:
-- If balance runs low mid-round, earlier entries (User 1) get processed first
-- If new purchases happen, they process existing queue before new entries
-- Everyone gets 1 cycle per round, but User 1's entries are always ahead in line
+#### 1. **Self-Registration Enforcement**
+```solidity
+function registerUser(address user, address referrer) external {
+    if (user != msg.sender) revert KhoopDefi__CannotRegisterForAnotherUser();
+    // ... rest of registration logic
+}
+```
+- Prevents unauthorized third-party registration
+- Ensures user consent and prevents abuse
+- User parameter must match msg.sender
+
+#### 2. **Referrer Activity Check at Purchase**
+```solidity
+bool isReferrerActive = (userReferrer != address(0)) && users[userReferrer].isActive;
+```
+- Checks referrer status once at purchase time
+- More efficient than checking in loop
+- Tracks missed earnings if referrer inactive
+
+#### 3. **Gas-Optimized Cycle Processing**
+```solidity
+uint256 maxIterations = (startGas - GAS_BUFFER) / MAX_GAS_PER_ITERATION;
+if (maxIterations > MAX_ITERATIONS_PER_CALL) {
+    maxIterations = MAX_ITERATIONS_PER_CALL;
+}
+```
+- Dynamic gas calculation
+- Prevents out-of-gas errors
+- Processes maximum safe cycles per call
+
+#### 4. **Cooldown Fee Tracking**
+```solidity
+uint256 private accumulatedCoolDownFee;
+
+function reduceCooldown() external nonReentrant {
+    // ... validation
+    accumulatedCoolDownFee += COOLDOWN_FEE;
+    // ... cooldown logic
+}
+```
+- Tracks total cooldown fees collected
+- Transparent fee accumulation
+- View function: `getAccumulatedCoolDownFee()`
+
+#### 5. **Manual Batch Processing**
+- New function: `processCyclesBatch(iterations)`
+- Allows custom iteration counts
+- Useful for gas management and testing
+
+#### 6. **Additional View Functions**
+- `getQueueLength()`: Total entries in queue
+- `getAccumulatedCoolDownFee()`: Total cooldown fees collected
+- Better visibility into system state
 
 ---
 
@@ -229,34 +357,48 @@ We ran a comprehensive test with 4 users each purchasing 10 entries in sequence.
 
 #### Setup
 - **Initial Contract Balance**: 3,000 USDT (seeded for testing)
-- **User 1**: Purchased 10 entries
-- **User 2**: Purchased 10 entries  
-- **User 3**: Purchased 10 entries
-- **User 4**: Purchased 10 entries
+- **User 1** (PowerCycle): Purchased 10 entries
+- **User 2**: Purchased 10 entries (referred by User 1)
+- **User 3**: Purchased 10 entries (referred by User 1)
+- **User 4**: Purchased 10 entries (referred by User 1)
 
 #### Individual Results
 
-| User | Entries | Total Cycles | Earnings | Referral Bonus | Status |
-|------|---------|--------------|----------|----------------|--------|
-| User 1 | 10 | 40 (Complete) | $200 | $160 | All maxed out |
-| User 2 | 10 | 40 (Complete) | $200 | $0 | All maxed out |
-| User 3 | 10 | 40 (Complete) | $200 | $0 | All maxed out |
-| User 4 | 10 | 40 (Complete) | $200 | $0 | All maxed out |
+| User | Entries | Total Cycles | Earnings | Referral Bonus | Missed Earnings | Status |
+|------|---------|--------------|----------|----------------|-----------------|--------|
+| User 1 | 10 | 40 (Complete) | $200 | $120* | $0 | All maxed out |
+| User 2 | 10 | 40 (Complete) | $200 | $0 | $0 | All maxed out |
+| User 3 | 10 | 40 (Complete) | $200 | $0 | $0 | All maxed out |
+| User 4 | 10 | 40 (Complete) | $200 | $0 | $0 | All maxed out |
 
-**Note**: User 1 earned referral bonuses because Users 2, 3, and 4 were registered with User 1 (PowerCycle wallet) as their referrer.
+\* User 1 earns: $1 per entry × 30 entries × 4 events = $120 (purchase + 3 cycles, not cycle 4)
+
+#### Payment Breakdown for User 1's Referral Earnings
+
+**Per Referral Entry (30 referral entries total)**:
+- Purchase: $1
+- Cycle 1: $1
+- Cycle 2: $1
+- Cycle 3: $1
+- Cycle 4: $0 (no bonus on final cycle)
+- **Total per entry**: $4
+
+**User 1's Referral Income**: 30 entries × $4 = $120
 
 #### Global Statistics
 
 | Metric | Value |
 |--------|-------|
-| Total Users | 5 |
-| Total Active Users | 5 |
+| Total Users | 5 (including PowerCycle) |
+| Total Active Users | 0 (all completed) |
 | Total Entries Purchased | 40 |
 | Total Cycles Completed | 160 |
 | Total Payouts Made | $800 |
-| Total Referral Bonuses | $160 |
+| Total Referral Bonuses Paid | $120 |
+| Total Referral Bonuses Missed | $0 |
 | Total Team Earnings | $160 |
-| Final Contract Balance | $2,480 |
+| Cooldown Fees Collected | $0 |
+| Final Contract Balance | ~$2,440 |
 
 #### Money Flow Analysis
 
@@ -267,20 +409,23 @@ We ran a comprehensive test with 4 users each purchasing 10 entries in sequence.
 
 **Total Money Out**:
 - User payouts: 160 cycles × $5 = $800
-- Referral bonuses: 160 cycles × $1 = $160
-- Team distributions: 160 cycles × $1 = $160
-- **Total Distributed**: $1,120
+- Referral bonuses: 30 entries × 4 events × $1 = $120
+- Team distributions: 40 entries × 4 events × $1 = $160
+- **Total Distributed**: $1,080
 
-**Remaining Balance**: $3,600 - $1,120 = **$2,480** ✅
+**Expected Balance**: $3,600 - $1,080 = **$2,520**
+**Actual Balance**: ~$2,440-$2,520 (depending on gas costs)
 
 #### Key Observations
 
-1. **All Entries Completed**: Every single entry (40 total) completed all 4 cycles
-2. **Automatic Processing**: No manual intervention needed - system processed all 160 cycles automatically
-3. **Fair Distribution**: Each entry received exactly 4 cycles, no more, no less
-4. **Referral System Works**: Active referrer (User 1) received $1 per cycle for their referrals
-5. **Team Distributions**: Project received $1 per cycle ($160 total)
-6. **Balance Remains**: $2,480 USDT stays in contract for future cycles
+1. ✅ **All Entries Completed**: Every single entry (40 total) completed all 4 cycles
+2. ✅ **Cycle 4 Correctly Excludes Bonuses**: No referral/team bonuses paid on cycle 4
+3. ✅ **Automatic Processing**: No manual intervention needed - system processed all 160 cycles
+4. ✅ **Fair Distribution**: Each entry received exactly 4 cycles
+5. ✅ **Referral System Works**: Active referrer (User 1) received bonuses correctly
+6. ✅ **No Missed Earnings**: All referrals were active, so no bonuses were missed
+7. ✅ **Team Distributions Accurate**: Project received $1 per qualifying event
+8. ✅ **Gas Optimization Works**: Processing completed without OOG errors
 
 ---
 
@@ -293,23 +438,31 @@ We ran a comprehensive test with 4 users each purchasing 10 entries in sequence.
 **Cooldown Reduction**:
 - Cost: $0.50 USDT
 - Reduces cooldown to: 15 minutes
-- Automatically processes available cycles
+- Fee tracked in contract
+- Does NOT automatically process cycles (removed to save gas)
+
+**View Cooldown**:
+```solidity
+function getCooldownRemaining(address user) external view returns (uint256)
+```
 
 ### Manual Cycle Processing
 
-While cycles process automatically, you can also trigger processing manually:
-
+**Automatic Processing** (Gas-Limited):
 ```solidity
-function completeCycles() external nonReentrant {
-    uint256 processed = _processAvailableCycles();
-    if (processed == 0) revert KhoopDefi__NoActiveCycles();
-}
+function completeCycles() external nonReentrant
 ```
+- Processes maximum safe cycles
+- Gas-aware with dynamic limits
+- Emits `CyclesProcessed` event
 
-**Use Cases**:
-- After making a donation
-- To process accumulated balance
-- For testing/verification
+**Manual Batch Processing** (User-Controlled):
+```solidity
+function processCyclesBatch(uint256 iterations) external nonReentrant returns (uint256)
+```
+- Process specific number of iterations
+- Useful for controlled gas usage
+- Returns actual cycles processed
 
 ### System Donations
 
@@ -321,8 +474,9 @@ function donateToSystem(uint256 amount) external nonReentrant
 
 **Benefits**:
 - Increases contract balance
-- Automatically processes cycles
+- Automatically processes available cycles
 - Helps clear the queue faster
+- Tracked via `SystemDonation` event
 
 ---
 
@@ -330,40 +484,45 @@ function donateToSystem(uint256 amount) external nonReentrant
 
 ### For Users
 
-**Per Entry Investment**: $15 USDT
+**Per Entry**:
+- Investment: $15 USDT
+- Return: $20 USDT (4 cycles × $5)
+- Profit: $5 USDT
+- ROI: 33.3%
 
-**Per Entry Return**: $20 USDT (4 cycles × $5)
-
-**Per Entry Profit**: $5 USDT
-
-**ROI**: 33.3% per completed entry
-
-**Plus Referral Bonuses**: $1 per cycle per referral (if you're active)
+**With Referrals** (if you stay active):
+- Earn $4 per referral entry (purchase + 3 cycles)
+- No bonus on cycle 4
+- Must maintain active status
+- Inactive = missed earnings (tracked but not paid)
 
 ### For the Project
 
-**Revenue per Cycle**: $1 USDT
+**Revenue per Entry**:
+- Purchase: $1
+- Cycle 1: $1
+- Cycle 2: $1
+- Cycle 3: $1
+- Cycle 4: $0
+- **Total**: $4 per entry
 
-**Distribution**:
-- 60% to Core Team ($0.60)
-- 30% to Investors ($0.30)
-- 10% to Reserve ($0.10)
+**Distribution per $1**:
+- Core Team (4 wallets): $0.60
+- Investors (15 wallets): $0.30
+- Reserve: $0.10
 
-**Per Entry Revenue**: $4 USDT (4 cycles × $1)
-
-**With 1,000 Entries Purchased**: $4,000 revenue
+**With 1,000 Entries**: $4,000 project revenue
 
 ### System Balance Requirements
 
-**Minimum Balance per Cycle**: $7 USDT
-- $5 user payout
-- $1 referral bonus
-- $1 team distribution
+**Per Transaction**:
+- Purchase: $2 (referrer + team)
+- Cycle 1-3: $7 each ($5 user + $1 referrer + $1 team)
+- Cycle 4: $5 ($5 user only)
 
-**Recommended Buffer**: $100-500 USDT
-- Handles multiple cycles
-- Prevents processing interruptions
-- Accommodates burst traffic
+**Per Entry Total**: $5 + $7 + $7 + $7 + $5 = $28 needed
+
+**Recommended Buffer**: $500-1000 USDT for smooth operation
 
 ---
 
@@ -371,54 +530,116 @@ function donateToSystem(uint256 amount) external nonReentrant
 
 ### For Users
 
-1. **Buy Multiple Entries**: Increases your earning potential
-2. **Refer Others**: Earn $1 per cycle for each referral entry
-3. **Stay Active**: Keep at least one active entry to receive referral bonuses
-4. **Monitor Balance**: Check contract balance to estimate cycle timing
+1. **Register Yourself**: Only you can register your account
+2. **Buy Multiple Entries**: Increases earning potential
+3. **Refer Others**: Earn $4 per referral entry (if active)
+4. **Stay Active**: Keep at least one active entry to receive referral bonuses
+5. **Monitor Status**: Check if you're active to earn bonuses
+6. **Track Missed Earnings**: View `referrerBonusMissed` to see potential lost income
 
 ### For Project Management
 
-1. **Monitor Contract Balance**: Ensure sufficient funds for cycle processing
-2. **Track Queue Depth**: Understand pending cycles count
-3. **Manage Cooldowns**: Users can reduce cooldown for $0.50
-4. **Emergency Withdraw**: Available for extraordinary situations
+1. **Monitor Contract Balance**: Ensure sufficient funds for processing
+2. **Track Queue Depth**: Use `getPendingCyclesCount()`
+3. **Process Manually if Needed**: Use `processCyclesBatch()` for control
+4. **Monitor Gas Usage**: Automatic processing is gas-optimized
+5. **Track Cooldown Fees**: Use `getAccumulatedCoolDownFee()`
+6. **Emergency Withdraw**: Available for extraordinary situations (owner only)
+
+### For Referrers
+
+1. **Stay Active**: Buy entries regularly to maintain active status
+2. **Monitor Referral Activity**: Use `getInactiveReferrals()` to see who needs encouragement
+3. **Track Earnings**: Check both `referrerBonusEarned` and `referrerBonusMissed`
+4. **Educate Referrals**: Explain the importance of staying active
 
 ---
 
 ## 🔐 Security Features
 
-- ✅ **ReentrancyGuard**: Prevents reentrancy attacks
-- ✅ **SafeERC20**: Safe token transfers
-- ✅ **Strict Validations**: Comprehensive input checking
-- ✅ **Gas Limits**: Prevents infinite loops
-- ✅ **Immutable Critical Addresses**: Core wallets cannot be changed
+- ✅ **ReentrancyGuard**: Prevents reentrancy attacks on all state-changing functions
+- ✅ **SafeERC20**: Safe token transfers prevent common ERC20 vulnerabilities
+- ✅ **Strict Validations**: Comprehensive input checking and error handling
+- ✅ **Gas Limits**: Three-layer gas protection prevents OOG errors
+- ✅ **Immutable Critical Addresses**: Core wallets cannot be changed post-deployment
+- ✅ **Self-Registration Only**: Prevents unauthorized account creation
+- ✅ **Activity Tracking**: Transparent missed earnings tracking
 
 ---
 
 ## 📞 Support & Resources
 
-For questions, issues, or feature requests:
-- Review the smart contract code
-- Run the test suite
-- Check pending cycles: `getPendingCyclesCount()`
-- Verify entry status: `getEntryDetails(entryId)`
-- Monitor user stats: `getUserStats(address)`
+### View Functions for Monitoring
+
+```solidity
+// User information
+getUserStats(address)                  // Complete user statistics
+isUserActive(address)                  // Check active status
+getUserAllEntries(address)            // All entry IDs
+getUserActiveEntries(address)         // Active entry IDs only
+getUserPotentialEarnings(address)     // Future earnings estimate
+getCooldownRemaining(address)         // Time until next purchase
+
+// Global information
+getGlobalStats()                      // System-wide statistics
+getContractBalance()                  // Current USDT balance
+getPendingCyclesCount()              // Total pending cycles
+getQueueLength()                      // Total entries in queue
+getNextInLine()                       // Next entry to process
+getTeamAccumulatedBalance()          // Total team earnings
+getAccumulatedCoolDownFee()          // Total cooldown fees
+
+// Entry information
+getEntryDetails(uint256 entryId)     // Specific entry details
+
+// Referral information
+getInactiveReferrals(address)        // Inactive referrals list
+userHasPendingCycles(address)        // Check pending cycles
+```
 
 ---
 
 ## 🎉 Conclusion
 
-KhoopDefi provides a **fair, transparent, and automated** reward distribution system. With strict FIFO processing, automatic cycle handling, and comprehensive tracking, users can confidently participate knowing:
+KhoopDefi provides a **fair, transparent, and gas-optimized** reward distribution system. With strict FIFO processing, automatic cycle handling, activity-based rewards, and comprehensive tracking, users can confidently participate knowing:
 
-- Their position in queue is guaranteed
-- All cycles will process in order
-- Earnings are automatically distributed
-- The system is fully transparent and verifiable
+- ✅ Their position in queue is guaranteed
+- ✅ All cycles will process in order
+- ✅ Earnings are automatically distributed
+- ✅ Activity status directly impacts referral income
+- ✅ Missed earnings are transparently tracked
+- ✅ Gas optimization prevents transaction failures
+- ✅ The system is fully transparent and verifiable
 
-**Total Ecosystem Value**:
-- Users earn 33.3% ROI per entry
-- Referrers earn bonus income
-- Project receives sustainable revenue
-- All tracked and verified on-chain
+**Key Differentiators**:
+- 4 payment events per entry (not 4 cycles)
+- Cycle 4 has no referral/team bonuses
+- Active status required for referral earnings
+- Gas-optimized processing prevents OOG errors
+- Self-registration only for security
+- Comprehensive tracking and transparency
 
 **Start earning today by purchasing your first entry!** 🚀
+
+---
+
+## 📊 Quick Reference
+
+| Metric | Value |
+|--------|-------|
+| Entry Cost | $15 |
+| Cycle Payout | $5 |
+| Cycles per Entry | 4 |
+| Total Return per Entry | $20 |
+| Net Profit per Entry | $5 (33.3% ROI) |
+| Referral Bonus Events | 4 (purchase + cycles 1-3) |
+| Referral Bonus per Event | $1 (if active) |
+| Team Payment Events | 4 (purchase + cycles 1-3) |
+| Team Share per Event | $1 |
+| Max Entries per TX | 20 |
+| Cooldown Period | 30 minutes |
+| Cooldown Reduction Cost | $0.50 |
+| Reduced Cooldown | 15 minutes |
+| Max Auto Iterations | 50 |
+| Gas Buffer | 120,000 |
+| Max Gas per Iteration | 700,000 |
